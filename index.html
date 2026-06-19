@@ -11,22 +11,21 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Inter', 'Segoe UI', sans-serif; background: #f1f5f9; min-height: 100vh; }
     input, select, button { font-family: inherit; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: #f1f5f9; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
   </style>
 </head>
 <body>
   <div id="root"></div>
-
   <script type="text/babel">
-    const { useState, useEffect, useCallback, useRef } = React;
+    const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
     // ── CONFIG ────────────────────────────────────────────────────────────────
-    const SHEET_ID = "1-s9YgLHaGx87h528JAvW2dLX4XSrkq7eQeABHIdvzCo";
-    const SHEET_NAME = "Agents Info"; // ← your tab name
-    const POLL_MS = 60000;
-    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+    const SHEET_ID   = "1-s9YgLHaGx87h528JAvW2dLX4XSrkq7eQeABHIdvzCo";
+    const SHEET_NAME = "Agents Info";
+    const POLL_MS    = 60000;
+    const CSV_URL    = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
 
     // ── STATUS COLORS ─────────────────────────────────────────────────────────
     const STATUS_CONFIG = {
@@ -43,28 +42,23 @@
     };
     const DEFAULT_STATUS = { bg:"#f1f5f9", text:"#64748b", dot:"#94a3b8" };
 
-    const COMP_COLORS = [
-      "#6366f1","#8b5cf6","#a855f7","#d946ef","#ec4899",
-      "#f97316","#eab308","#22c55e","#06b6d4","#3b82f6",
-    ];
+    const COMP_COLORS = ["#6366f1","#8b5cf6","#a855f7","#d946ef","#ec4899","#f97316","#eab308","#22c55e","#06b6d4","#3b82f6"];
     const compColorMap = {};
     function getCompColor(level) {
       if (!level || level === "—") return "#94a3b8";
       if (!compColorMap[level]) {
-        const idx = Object.keys(compColorMap).length;
-        compColorMap[level] = COMP_COLORS[idx % COMP_COLORS.length];
+        compColorMap[level] = COMP_COLORS[Object.keys(compColorMap).length % COMP_COLORS.length];
       }
       return compColorMap[level];
     }
 
     // ── CSV PARSER ────────────────────────────────────────────────────────────
     function parseCSVLine(line) {
-      const cols = [];
-      let cur = "", inQ = false;
+      const cols = []; let cur = "", inQ = false;
       for (let i = 0; i < line.length; i++) {
         const c = line[i];
         if (c === '"') { inQ = !inQ; }
-        else if (c === "," && !inQ) { cols.push(cur); cur = ""; }
+        else if (c === ',' && !inQ) { cols.push(cur); cur = ""; }
         else { cur += c; }
       }
       cols.push(cur);
@@ -75,47 +69,45 @@
       const lines = text.trim().split("\n");
       if (lines.length < 2) return [];
       const headers = parseCSVLine(lines[0]);
-
-      return lines.slice(1).map((line, idx) => {
-        const cols = parseCSVLine(line);
+      const agents = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i]);
         const row = {};
-        headers.forEach((h, i) => { row[h] = (cols[i] || "").trim(); });
-
+        headers.forEach((h, j) => { row[h] = (cols[j] || "").trim(); });
+        const name = row["Agent Name"] || row["Name"] || "";
+        if (!name) continue;
         const uplines = [];
         for (let u = 1; u <= 10; u++) {
           const val = row[`Upline ${u}`] || "";
           if (val) uplines.push(val);
         }
-
-        const name = row["Agent Name"] || row["Name"] || "";
-        if (!name) return null;
-
-        return {
-          id: idx + 1,
+        agents.push({
+          id:           i,
           name,
-          npn:          row["NPN"]           || "—",
-          status:       row["Status"]         || "—",
-          compLevel:    row["Comp Level"] || row["Comp level"] || row["Comp"] || "—",
-          email:        row["Email"]          || "—",
-          team:         row["Team"]           || "—",
-          directUpline: row["Direct Upline"]  || null,
+          npn:          row["NPN"]          || "—",
+          status:       row["Status"]        || "—",
+          compLevel:    row["Comp Level"]    || row["Comp level"] || row["Comp"] || "—",
+          email:        row["Email"]         || "—",
+          team:         row["Team"]          || "—",
+          directUpline: row["Direct Upline"] || null,
           uplines,
-          children: [],
-        };
-      }).filter(Boolean);
+        });
+      }
+      return agents;
     }
 
     // ── TREE BUILDER ──────────────────────────────────────────────────────────
     function buildTree(agents) {
-      const byName = {};
-      agents.forEach(a => { byName[a.name] = { ...a, children: [] }; });
+      // Build lookup
+      const byName = new Map();
+      agents.forEach(a => byName.set(a.name, { ...a, children: [] }));
       const roots = [];
       agents.forEach(a => {
-        const node = byName[a.name];
-        if (!a.directUpline || !byName[a.directUpline]) {
+        const node = byName.get(a.name);
+        if (!a.directUpline || !byName.has(a.directUpline)) {
           roots.push(node);
         } else {
-          byName[a.directUpline].children.push(node);
+          byName.get(a.directUpline).children.push(node);
         }
       });
       return roots;
@@ -123,151 +115,143 @@
 
     // ── HELPERS ───────────────────────────────────────────────────────────────
     function getInitials(name) {
-      const parts = name.split(" ").filter(Boolean);
-      if (parts.length === 1) return parts[0][0].toUpperCase();
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      const p = name.split(" ").filter(Boolean);
+      return p.length === 1 ? p[0][0].toUpperCase() : (p[0][0] + p[p.length-1][0]).toUpperCase();
     }
 
-    function countAll(node) {
-      let c = 1;
-      (node.children || []).forEach(ch => { c += countAll(ch); });
+    function countDescendants(node) {
+      let c = 0;
+      (node.children || []).forEach(ch => { c += 1 + countDescendants(ch); });
       return c;
     }
 
+    // Custom debounce hook
+    function useDebounce(value, delay) {
+      const [debounced, setDebounced] = useState(value);
+      useEffect(() => {
+        const t = setTimeout(() => setDebounced(value), delay);
+        return () => clearTimeout(t);
+      }, [value, delay]);
+      return debounced;
+    }
+
     // ── AGENT CARD ────────────────────────────────────────────────────────────
-    function AgentCard({ agent, depth, searchTerm }) {
-      const [expanded, setExpanded] = useState(depth < 2);
+    const AgentCard = React.memo(function AgentCard({ agent, depth, searchTerm }) {
+      const [expanded, setExpanded]     = useState(depth < 1);
       const [showDetail, setShowDetail] = useState(false);
       const hasChildren = agent.children && agent.children.length > 0;
-      const status = STATUS_CONFIG[agent.status] || DEFAULT_STATUS;
-      const compColor = getCompColor(agent.compLevel);
-      const isMatch = searchTerm && (
+      const status      = STATUS_CONFIG[agent.status] || DEFAULT_STATUS;
+      const compColor   = getCompColor(agent.compLevel);
+      const isMatch     = searchTerm && (
         agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         agent.npn.toLowerCase().includes(searchTerm.toLowerCase()) ||
         agent.email.toLowerCase().includes(searchTerm.toLowerCase())
       );
-
-      const totalDownline = hasChildren ? countAll(agent) - 1 : 0;
+      const downlineCount = useMemo(() => hasChildren ? countDescendants(agent) : 0, [agent, hasChildren]);
 
       return (
-        <div style={{ marginLeft: depth === 0 ? 0 : 28, position:"relative" }}>
+        <div style={{ marginLeft: depth === 0 ? 0 : 24, position:"relative" }}>
           {depth > 0 && <>
-            <div style={{ position:"absolute", left:-20, top:28, width:16, height:2, background:"#e2e8f0" }} />
-            <div style={{ position:"absolute", left:-20, top:0, width:2, height:28, background:"#e2e8f0" }} />
+            <div style={{ position:"absolute", left:-16, top:26, width:12, height:2, background:"#e2e8f0" }} />
+            <div style={{ position:"absolute", left:-16, top:0, width:2, height:26, background:"#e2e8f0" }} />
           </>}
 
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6, marginTop: depth===0?0:8 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5, marginTop: depth===0?0:6 }}>
             {/* Toggle */}
             {hasChildren ? (
-              <button
-                onClick={() => setExpanded(!expanded)}
-                title={expanded ? "Collapse" : "Expand"}
-                style={{
-                  width:22, height:22, borderRadius:6,
-                  border:"1.5px solid #cbd5e1",
-                  background: expanded ? "#1e293b" : "#fff",
-                  color: expanded ? "#fff" : "#475569",
-                  cursor:"pointer", display:"flex", alignItems:"center",
-                  justifyContent:"center", fontSize:14, fontWeight:700,
-                  flexShrink:0, transition:"all 0.15s", lineHeight:1,
-                }}
-              >{expanded ? "−" : "+"}</button>
+              <button onClick={() => setExpanded(e => !e)} style={{
+                width:20, height:20, borderRadius:5, border:"1.5px solid #cbd5e1",
+                background: expanded ? "#1e293b" : "#fff",
+                color: expanded ? "#fff" : "#475569",
+                cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:13, fontWeight:700, flexShrink:0, lineHeight:1,
+              }}>{expanded ? "−" : "+"}</button>
             ) : (
-              <div style={{ width:22, flexShrink:0 }} />
+              <div style={{ width:20, flexShrink:0 }} />
             )}
 
             {/* Card */}
-            <div
-              onClick={() => setShowDetail(!showDetail)}
-              style={{
-                display:"flex", alignItems:"center", gap:12,
-                background: isMatch ? "#fffbeb" : "#fff",
-                border: isMatch      ? "1.5px solid #f59e0b"
-                      : showDetail   ? "1.5px solid #6366f1"
-                      :                "1.5px solid #e2e8f0",
-                borderRadius:12, padding:"10px 14px",
-                cursor:"pointer", flex:1, maxWidth:680,
-                boxShadow: showDetail
-                  ? "0 0 0 3px rgba(99,102,241,0.1)"
-                  : "0 1px 3px rgba(0,0,0,0.05)",
-                transition:"all 0.15s",
-              }}
-            >
+            <div onClick={() => setShowDetail(d => !d)} style={{
+              display:"flex", alignItems:"center", gap:10,
+              background: isMatch ? "#fffbeb" : "#fff",
+              border: isMatch     ? "1.5px solid #f59e0b"
+                    : showDetail  ? "1.5px solid #6366f1"
+                    :               "1.5px solid #e2e8f0",
+              borderRadius:11, padding:"9px 12px",
+              cursor:"pointer", flex:1, maxWidth:720,
+              boxShadow: showDetail ? "0 0 0 3px rgba(99,102,241,0.08)" : "0 1px 2px rgba(0,0,0,0.04)",
+              transition:"border-color 0.1s, box-shadow 0.1s",
+            }}>
               {/* Avatar */}
               <div style={{
-                width:40, height:40, borderRadius:10, flexShrink:0,
-                background:`linear-gradient(135deg,${compColor}22,${compColor}44)`,
-                border:`2px solid ${compColor}55`,
+                width:36, height:36, borderRadius:9, flexShrink:0,
+                background:`linear-gradient(135deg,${compColor}20,${compColor}40)`,
+                border:`2px solid ${compColor}50`,
                 display:"flex", alignItems:"center", justifyContent:"center",
-                fontSize:13, fontWeight:700, color:compColor, letterSpacing:0.5,
-              }}>
-                {getInitials(agent.name)}
-              </div>
+                fontSize:12, fontWeight:700, color:compColor, letterSpacing:0.5,
+              }}>{getInitials(agent.name)}</div>
 
               {/* Name + NPN */}
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontWeight:600, fontSize:14, color:"#0f172a", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                <div style={{ fontWeight:600, fontSize:13, color:"#0f172a", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
                   {agent.name}
                 </div>
                 <div style={{ fontSize:11, color:"#94a3b8", marginTop:1 }}>{agent.npn}</div>
               </div>
 
-              {/* Team pill */}
+              {/* Team */}
               {agent.team && agent.team !== "—" && (
-                <div style={{ fontSize:11, color:"#475569", background:"#f1f5f9", borderRadius:20, padding:"3px 9px", flexShrink:0, whiteSpace:"nowrap" }}>
+                <div style={{ fontSize:11, color:"#475569", background:"#f1f5f9", borderRadius:20, padding:"2px 8px", flexShrink:0, whiteSpace:"nowrap" }}>
                   {agent.team}
                 </div>
               )}
 
               {/* Status */}
-              <div style={{ display:"flex", alignItems:"center", gap:5, background:status.bg, borderRadius:20, padding:"3px 10px", flexShrink:0 }}>
-                <div style={{ width:6, height:6, borderRadius:"50%", background:status.dot }} />
+              <div style={{ display:"flex", alignItems:"center", gap:4, background:status.bg, borderRadius:20, padding:"2px 9px", flexShrink:0 }}>
+                <div style={{ width:5, height:5, borderRadius:"50%", background:status.dot }} />
                 <span style={{ fontSize:11, fontWeight:600, color:status.text, whiteSpace:"nowrap" }}>{agent.status}</span>
               </div>
 
               {/* Comp */}
               {agent.compLevel && agent.compLevel !== "—" && (
-                <div style={{ background:`${compColor}18`, color:compColor, borderRadius:6, padding:"3px 9px", fontSize:11, fontWeight:700, flexShrink:0, whiteSpace:"nowrap" }}>
+                <div style={{ background:`${compColor}15`, color:compColor, borderRadius:6, padding:"2px 8px", fontSize:11, fontWeight:700, flexShrink:0 }}>
                   {agent.compLevel}
                 </div>
               )}
 
               {/* Downline count */}
               {hasChildren && (
-                <div style={{ fontSize:11, color:"#94a3b8", flexShrink:0, minWidth:40, textAlign:"right" }}>
-                  {totalDownline} ↓
+                <div style={{ fontSize:11, color:"#94a3b8", flexShrink:0, minWidth:36, textAlign:"right" }}>
+                  {downlineCount}↓
                 </div>
               )}
 
-              {/* Chevron */}
-              <div style={{ fontSize:11, color:"#cbd5e1", flexShrink:0 }}>
-                {showDetail ? "▲" : "▼"}
-              </div>
+              <div style={{ fontSize:10, color:"#cbd5e1", flexShrink:0 }}>{showDetail ? "▲" : "▼"}</div>
             </div>
           </div>
 
           {/* Detail Panel */}
           {showDetail && (
             <div style={{
-              marginLeft:32, marginBottom:10,
+              marginLeft:28, marginBottom:8,
               background:"#f8fafc", border:"1.5px solid #e2e8f0",
-              borderRadius:10, padding:"14px 16px", maxWidth:648,
-              display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px 24px",
+              borderRadius:10, padding:"12px 14px", maxWidth:692,
+              display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px 20px",
             }}>
               {[
-                { label:"Email",         value: agent.email },
-                { label:"Team",          value: agent.team },
-                { label:"Comp Level",    value: agent.compLevel },
-                { label:"NPN",           value: agent.npn },
-                { label:"Status",        value: agent.status },
-                { label:"Direct Upline", value: agent.directUpline || "—" },
+                { label:"Email",             value: agent.email },
+                { label:"Team",              value: agent.team },
+                { label:"Comp Level",        value: agent.compLevel },
+                { label:"NPN",               value: agent.npn },
+                { label:"Status",            value: agent.status },
+                { label:"Direct Upline",     value: agent.directUpline || "—" },
                 { label:"Full Upline Chain", value: agent.uplines.length ? agent.uplines.join(" → ") : "—", full:true },
               ].map(item => (
                 <div key={item.label} style={{ gridColumn: item.full ? "1 / -1" : "auto" }}>
-                  <div style={{ fontSize:10, color:"#94a3b8", fontWeight:600, textTransform:"uppercase", letterSpacing:0.6, marginBottom:3 }}>
+                  <div style={{ fontSize:10, color:"#94a3b8", fontWeight:600, textTransform:"uppercase", letterSpacing:0.5, marginBottom:2 }}>
                     {item.label}
                   </div>
-                  <div style={{ fontSize:13, color:"#334155", fontWeight:500, wordBreak:"break-word", lineHeight:1.5 }}>
+                  <div style={{ fontSize:12, color:"#334155", fontWeight:500, wordBreak:"break-word", lineHeight:1.5 }}>
                     {item.value}
                   </div>
                 </div>
@@ -278,39 +262,41 @@
           {/* Children */}
           {expanded && hasChildren && (
             <div style={{ position:"relative" }}>
-              <div style={{ position:"absolute", left:11, top:0, bottom:20, width:2, background:"#e2e8f0" }} />
+              <div style={{ position:"absolute", left:9, top:0, bottom:16, width:2, background:"#e2e8f0" }} />
               {agent.children.map(child => (
-                <AgentCard key={child.id} agent={child} depth={depth + 1} searchTerm={searchTerm} />
+                <AgentCard key={child.name} agent={child} depth={depth + 1} searchTerm={searchTerm} />
               ))}
             </div>
           )}
         </div>
       );
-    }
+    });
 
     // ── MAIN APP ──────────────────────────────────────────────────────────────
     function App() {
-      const [agents, setAgents]         = useState([]);
+      const [allAgents, setAllAgents]   = useState([]);
       const [loading, setLoading]       = useState(true);
       const [error, setError]           = useState(null);
       const [lastUpdated, setLastUpdated] = useState(null);
-      const [search, setSearch]         = useState("");
+      const [searchInput, setSearchInput]   = useState("");
       const [filterStatus, setFilterStatus] = useState("All");
       const [filterTeam, setFilterTeam]     = useState("All");
-      const timerRef = useRef(null);
+
+      // Debounce search — waits 350ms after user stops typing
+      const search = useDebounce(searchInput, 350);
 
       const fetchSheet = useCallback(async (isManual = false) => {
         if (isManual) setLoading(true);
         try {
-          const res = await fetch(CSV_URL + "&cachebust=" + Date.now());
+          const res = await fetch(CSV_URL + "&cb=" + Date.now());
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const text = await res.text();
           const parsed = parseCSV(text);
           if (parsed.length === 0) throw new Error("Sheet appears empty or headers don't match.");
-          setAgents(parsed);
+          setAllAgents(parsed);
           setLastUpdated(new Date());
           setError(null);
-        } catch (e) {
+        } catch(e) {
           setError(e.message || "Could not load sheet.");
         } finally {
           setLoading(false);
@@ -319,74 +305,84 @@
 
       useEffect(() => {
         fetchSheet();
-        timerRef.current = setInterval(() => fetchSheet(), POLL_MS);
-        return () => clearInterval(timerRef.current);
+        const t = setInterval(() => fetchSheet(), POLL_MS);
+        return () => clearInterval(t);
       }, [fetchSheet]);
 
-      const allTeams    = ["All", ...new Set(agents.map(a => a.team).filter(t => t && t !== "—"))];
-      const allStatuses = ["All", ...Object.keys(STATUS_CONFIG)];
+      // Memoize teams & statuses — only recompute when allAgents changes
+      const allTeams = useMemo(() =>
+        ["All", ...new Set(allAgents.map(a => a.team).filter(t => t && t !== "—").sort())],
+        [allAgents]
+      );
+      const allStatuses = useMemo(() =>
+        ["All", ...Object.keys(STATUS_CONFIG).filter(s => allAgents.some(a => a.status === s))],
+        [allAgents]
+      );
 
-      const filtered = agents.filter(a => {
-        const ms  = !search || a.name.toLowerCase().includes(search.toLowerCase())
-                             || a.npn.toLowerCase().includes(search.toLowerCase())
-                             || a.email.toLowerCase().includes(search.toLowerCase());
-        const mSt = filterStatus === "All" || a.status === filterStatus;
-        const mT  = filterTeam   === "All" || a.team   === filterTeam;
-        return ms && mSt && mT;
-      });
+      // Memoize filtered agents — only recompute when search/filters/data change
+      const filtered = useMemo(() => {
+        const sl = search.toLowerCase();
+        return allAgents.filter(a => {
+          const ms  = !search || a.name.toLowerCase().includes(sl)
+                               || a.npn.toLowerCase().includes(sl)
+                               || a.email.toLowerCase().includes(sl);
+          const mSt = filterStatus === "All" || a.status === filterStatus;
+          const mT  = filterTeam   === "All" || a.team   === filterTeam;
+          return ms && mSt && mT;
+        });
+      }, [allAgents, search, filterStatus, filterTeam]);
 
-      const tree = buildTree(filtered);
+      // Memoize tree — only rebuild when filtered list changes
+      const tree = useMemo(() => buildTree(filtered), [filtered]);
 
-      const statCounts = {};
-      agents.forEach(a => { statCounts[a.status] = (statCounts[a.status] || 0) + 1; });
+      // Memoize stat counts
+      const statCounts = useMemo(() => {
+        const counts = {};
+        allAgents.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
+        return counts;
+      }, [allAgents]);
 
       const topStats = [
-        { label:"Total Agents",   value: agents.length,                       color:"#6366f1" },
-        { label:"Active Agents",  value: statCounts["Active Agent"]    || 0,  color:"#22c55e" },
-        { label:"New Agents",     value: statCounts["New Agent"]       || 0,  color:"#06b6d4" },
-        { label:"Team Leaders",   value: statCounts["Team Leader"]     || 0,  color:"#f97316" },
-        { label:"Pending Release",value: statCounts["Agent Pending Release"] || 0, color:"#eab308" },
-        { label:"Terminated",     value: statCounts["Terminated"]      || 0,  color:"#ef4444" },
+        { label:"Total Agents",    value: allAgents.length,                          color:"#6366f1" },
+        { label:"Active Agents",   value: statCounts["Active Agent"]          || 0,  color:"#22c55e" },
+        { label:"New Agents",      value: statCounts["New Agent"]             || 0,  color:"#06b6d4" },
+        { label:"Team Leaders",    value: statCounts["Team Leader"]           || 0,  color:"#f97316" },
+        { label:"Pending Release", value: statCounts["Agent Pending Release"] || 0,  color:"#eab308" },
+        { label:"Terminated",      value: statCounts["Terminated"]            || 0,  color:"#ef4444" },
       ];
 
       return (
         <div style={{ minHeight:"100vh", background:"#f1f5f9", paddingBottom:48 }}>
 
-          {/* ── HEADER ── */}
-          <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e293b 100%)", padding:"24px 32px 22px" }}>
-            <div style={{ maxWidth:1000, margin:"0 auto" }}>
+          {/* HEADER */}
+          <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e293b 100%)", padding:"22px 32px 20px" }}>
+            <div style={{ maxWidth:1020, margin:"0 auto" }}>
               <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
                 <div>
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:5 }}>
                     <div style={{ width:34, height:34, borderRadius:9, background:"linear-gradient(135deg,#6366f1,#a855f7)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🏢</div>
-                    <h1 style={{ fontSize:22, fontWeight:700, color:"#fff", letterSpacing:-0.3 }}>Agent Hierarchy</h1>
+                    <h1 style={{ fontSize:21, fontWeight:700, color:"#fff", letterSpacing:-0.3 }}>Agent Hierarchy</h1>
                   </div>
                   <p style={{ fontSize:12, color:"#64748b" }}>
                     Live · auto-refreshes every 60s
                     {lastUpdated && <span style={{ color:"#475569" }}> · Last sync: {lastUpdated.toLocaleTimeString()}</span>}
                   </p>
                 </div>
-                <button
-                  onClick={() => fetchSheet(true)}
-                  disabled={loading}
-                  style={{
-                    padding:"9px 18px", borderRadius:9,
-                    border:"1.5px solid rgba(255,255,255,0.15)",
-                    background:"rgba(255,255,255,0.08)", color:"#e2e8f0",
-                    fontSize:13, fontWeight:600, cursor: loading ? "wait" : "pointer",
-                    display:"flex", alignItems:"center", gap:6,
-                    opacity: loading ? 0.6 : 1,
-                  }}
-                >
+                <button onClick={() => fetchSheet(true)} disabled={loading} style={{
+                  padding:"9px 18px", borderRadius:9, border:"1.5px solid rgba(255,255,255,0.15)",
+                  background:"rgba(255,255,255,0.08)", color:"#e2e8f0",
+                  fontSize:13, fontWeight:600, cursor: loading ? "wait" : "pointer",
+                  display:"flex", alignItems:"center", gap:6, opacity: loading ? 0.6 : 1,
+                }}>
                   {loading ? "⏳ Loading…" : "↻ Refresh now"}
                 </button>
               </div>
 
-              {/* Stats row */}
-              <div style={{ display:"flex", gap:10, marginTop:18, flexWrap:"wrap" }}>
+              {/* Stats */}
+              <div style={{ display:"flex", gap:10, marginTop:16, flexWrap:"wrap" }}>
                 {topStats.map(s => (
-                  <div key={s.label} style={{ background:"rgba(255,255,255,0.06)", borderRadius:10, padding:"9px 14px", border:"1px solid rgba(255,255,255,0.07)", minWidth:80 }}>
-                    <div style={{ fontSize:20, fontWeight:700, color:s.color, lineHeight:1 }}>{s.value}</div>
+                  <div key={s.label} style={{ background:"rgba(255,255,255,0.06)", borderRadius:10, padding:"8px 14px", border:"1px solid rgba(255,255,255,0.07)", minWidth:76 }}>
+                    <div style={{ fontSize:19, fontWeight:700, color:s.color, lineHeight:1 }}>{s.value}</div>
                     <div style={{ fontSize:10, color:"#64748b", fontWeight:500, marginTop:3 }}>{s.label}</div>
                   </div>
                 ))}
@@ -394,44 +390,54 @@
             </div>
           </div>
 
-          {/* ── BODY ── */}
-          <div style={{ maxWidth:1000, margin:"0 auto", padding:"24px 24px 0" }}>
+          {/* BODY */}
+          <div style={{ maxWidth:1020, margin:"0 auto", padding:"22px 24px 0" }}>
 
             {/* Filters */}
-            <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
-              <input
-                type="text"
-                placeholder="🔍  Search by name, NPN, or email…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                style={{
-                  flex:1, minWidth:220, padding:"10px 14px",
-                  borderRadius:10, border:"1.5px solid #e2e8f0",
-                  fontSize:13, outline:"none", background:"#fff", color:"#0f172a",
-                }}
-              />
-              <select
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                style={{ padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:13, background:"#fff", color:"#0f172a", cursor:"pointer" }}
-              >
+            <div style={{ display:"flex", gap:10, marginBottom:18, flexWrap:"wrap" }}>
+              <div style={{ flex:1, minWidth:220, position:"relative" }}>
+                <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", fontSize:14, color:"#94a3b8", pointerEvents:"none" }}>🔍</span>
+                <input
+                  type="text"
+                  placeholder="Search by name, NPN, or email…"
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  style={{ width:"100%", padding:"10px 14px 10px 34px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:13, outline:"none", background:"#fff", color:"#0f172a" }}
+                />
+                {searchInput && (
+                  <button onClick={() => setSearchInput("")} style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94a3b8", fontSize:16, lineHeight:1 }}>×</button>
+                )}
+              </div>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                style={{ padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:13, background:"#fff", color:"#0f172a", cursor:"pointer", minWidth:160 }}>
                 {allStatuses.map(s => <option key={s}>{s}</option>)}
               </select>
-              <select
-                value={filterTeam}
-                onChange={e => setFilterTeam(e.target.value)}
-                style={{ padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:13, background:"#fff", color:"#0f172a", cursor:"pointer" }}
-              >
+              <select value={filterTeam} onChange={e => setFilterTeam(e.target.value)}
+                style={{ padding:"10px 12px", borderRadius:10, border:"1.5px solid #e2e8f0", fontSize:13, background:"#fff", color:"#0f172a", cursor:"pointer", minWidth:160 }}>
                 {allTeams.map(t => <option key={t}>{t}</option>)}
               </select>
+              {(search || filterStatus !== "All" || filterTeam !== "All") && (
+                <button onClick={() => { setSearchInput(""); setFilterStatus("All"); setFilterTeam("All"); }}
+                  style={{ padding:"10px 14px", borderRadius:10, border:"1.5px solid #fca5a5", background:"#fff", color:"#ef4444", fontSize:13, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap" }}>
+                  ✕ Clear filters
+                </button>
+              )}
             </div>
 
-            {/* Tree panel */}
-            <div style={{ background:"#fff", borderRadius:16, border:"1.5px solid #e2e8f0", padding:"20px 20px 24px 16px", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", minHeight:240 }}>
+            {/* Result count */}
+            {!loading && !error && (search || filterStatus !== "All" || filterTeam !== "All") && (
+              <div style={{ fontSize:12, color:"#64748b", marginBottom:12 }}>
+                Showing <strong style={{ color:"#0f172a" }}>{filtered.length}</strong> of {allAgents.length} agents
+              </div>
+            )}
+
+            {/* Tree */}
+            <div style={{ background:"#fff", borderRadius:16, border:"1.5px solid #e2e8f0", padding:"18px 18px 22px 14px", boxShadow:"0 1px 4px rgba(0,0,0,0.04)", minHeight:200 }}>
               {loading ? (
                 <div style={{ textAlign:"center", padding:"48px 20px", color:"#94a3b8" }}>
                   <div style={{ fontSize:28, marginBottom:10 }}>⏳</div>
                   <div style={{ fontSize:14, fontWeight:500 }}>Loading from Google Sheets…</div>
+                  <div style={{ fontSize:12, marginTop:6 }}>This may take a few seconds for large sheets</div>
                 </div>
               ) : error ? (
                 <div style={{ textAlign:"center", padding:"48px 20px" }}>
@@ -441,38 +447,44 @@
                     Make sure your sheet is shared:<br/>
                     <strong>Share → Anyone with the link → Viewer</strong>
                   </div>
-                  <button onClick={() => fetchSheet(true)} style={{ marginTop:16, padding:"8px 18px", borderRadius:8, border:"1.5px solid #e2e8f0", background:"#f8fafc", fontSize:13, cursor:"pointer", color:"#334155", fontWeight:600 }}>
+                  <button onClick={() => fetchSheet(true)} style={{ marginTop:14, padding:"8px 18px", borderRadius:8, border:"1.5px solid #e2e8f0", background:"#f8fafc", fontSize:13, cursor:"pointer", color:"#334155", fontWeight:600 }}>
                     Try again
                   </button>
                 </div>
               ) : tree.length === 0 ? (
-                <div style={{ textAlign:"center", padding:"48px 20px", color:"#94a3b8", fontSize:14 }}>
-                  No agents match your current filters.
+                <div style={{ textAlign:"center", padding:"48px 20px", color:"#94a3b8" }}>
+                  <div style={{ fontSize:28, marginBottom:10 }}>🔍</div>
+                  <div style={{ fontSize:14 }}>No agents match your current filters.</div>
+                  <button onClick={() => { setSearchInput(""); setFilterStatus("All"); setFilterTeam("All"); }}
+                    style={{ marginTop:12, padding:"8px 16px", borderRadius:8, border:"1.5px solid #e2e8f0", background:"#f8fafc", fontSize:13, cursor:"pointer", color:"#334155", fontWeight:600 }}>
+                    Clear filters
+                  </button>
                 </div>
               ) : (
                 tree.map(root => (
-                  <AgentCard key={root.id} agent={root} depth={0} searchTerm={search} />
+                  <AgentCard key={root.name} agent={root} depth={0} searchTerm={search} />
                 ))
               )}
             </div>
 
             {/* Status legend */}
-            {!loading && !error && agents.length > 0 && (
-              <div style={{ marginTop:14, display:"flex", flexWrap:"wrap", gap:7 }}>
-                {Object.entries(STATUS_CONFIG).map(([label, cfg]) => (
+            {!loading && !error && allAgents.length > 0 && (
+              <div style={{ marginTop:12, display:"flex", flexWrap:"wrap", gap:6 }}>
+                {Object.entries(STATUS_CONFIG).map(([label, cfg]) =>
                   statCounts[label] ? (
-                    <div key={label} style={{ display:"flex", alignItems:"center", gap:5, background:"#fff", border:"1px solid #e2e8f0", borderRadius:20, padding:"3px 10px" }}>
+                    <div key={label} style={{ display:"flex", alignItems:"center", gap:5, background:"#fff", border:"1px solid #e2e8f0", borderRadius:20, padding:"3px 10px", cursor:"pointer" }}
+                      onClick={() => setFilterStatus(filterStatus === label ? "All" : label)}>
                       <div style={{ width:6, height:6, borderRadius:"50%", background:cfg.dot }} />
                       <span style={{ fontSize:11, color:cfg.text, fontWeight:600 }}>{label}</span>
                       <span style={{ fontSize:11, color:"#94a3b8" }}>({statCounts[label]})</span>
                     </div>
                   ) : null
-                ))}
+                )}
               </div>
             )}
 
-            <p style={{ fontSize:11, color:"#94a3b8", textAlign:"center", marginTop:18, lineHeight:1.7 }}>
-              Click any agent card to see full details &nbsp;·&nbsp; +/− to expand or collapse downline &nbsp;·&nbsp; ↓ shows total downline count
+            <p style={{ fontSize:11, color:"#94a3b8", textAlign:"center", marginTop:16, lineHeight:1.7 }}>
+              Click any agent card to see full details &nbsp;·&nbsp; +/− to expand or collapse downline &nbsp;·&nbsp; ↓ = total downline count &nbsp;·&nbsp; Click a status badge below to filter
             </p>
           </div>
         </div>
