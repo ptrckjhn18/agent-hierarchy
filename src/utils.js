@@ -43,67 +43,60 @@ export function parseCSV(text) {
   return agents
 }
 
-// Builds tree from ALL agents, but only returns roots that contain
-// at least one matching agent (by name set). This prevents unrelated
-// root nodes (like Kayden Moreno) from appearing in search results.
-export function buildTree(allAgents, matchingNames) {
-  // Build full tree from all agents so hierarchy is intact
+// Always build the full tree from ALL agents.
+// matchingNames = Set of agent names that pass the current filter.
+// Prune branches that have zero matching descendants.
+export function buildFilteredTree(allAgents, matchingNames) {
+  // Build complete tree map from every agent
   const byName = new Map()
-  allAgents.forEach(a => byName.set(a.name, { ...a, children: [] }))
+  allAgents.forEach(a => byName.set(a.name, { ...a, children: [], isMatch: false, isPathNode: false }))
 
+  // Wire up parent→child relationships
   allAgents.forEach(a => {
-    const node = byName.get(a.name)
     if (a.directUpline && byName.has(a.directUpline)) {
-      byName.get(a.directUpline).children.push(node)
+      byName.get(a.directUpline).children.push(byName.get(a.name))
     }
   })
 
-  // If no filter active, return all roots
+  // If no filter, return all true roots
   if (!matchingNames) {
     return allAgents
       .filter(a => !a.directUpline || !byName.has(a.directUpline))
       .map(a => byName.get(a.name))
   }
 
-  // Otherwise find the true root of each matching agent
-  // and only include roots that have a matching descendant
-  function nodeContainsMatch(node) {
-    if (matchingNames.has(node.name)) return true
-    return (node.children || []).some(c => nodeContainsMatch(c))
-  }
-
-  // For each matching agent, walk up to find its true root
-  const rootsToShow = new Set()
+  // Mark matching nodes
   matchingNames.forEach(name => {
-    let current = allAgents.find(a => a.name === name)
-    if (!current) return
-    // Walk up upline chain to find the root
-    while (current.directUpline && byName.has(current.directUpline)) {
-      current = byName.get(current.directUpline)
-    }
-    rootsToShow.add(current.name)
+    if (byName.has(name)) byName.get(name).isMatch = true
   })
 
-  return [...rootsToShow]
-    .map(name => byName.get(name))
-    .filter(Boolean)
-}
-
-// Prune tree to only show branches containing matching agents
-export function pruneTree(node, matchingNames) {
-  if (matchingNames.has(node.name)) {
-    // This node matches — show it with all its children collapsed
-    return { ...node, isMatch: true, children: node.children || [] }
+  // Recursively check if a node or any descendant is a match
+  function hasMatch(node) {
+    if (node.isMatch) return true
+    return node.children.some(c => hasMatch(c))
   }
-  // Check children for matches
-  const prunedChildren = (node.children || [])
-    .map(c => pruneTree(c, matchingNames))
-    .filter(Boolean)
 
-  if (prunedChildren.length > 0) {
-    return { ...node, isMatch: false, children: prunedChildren, forceExpand: true }
+  // Prune tree: keep only branches that lead to a match
+  // Preserve full upline path — never drop a parent node
+  function pruneNode(node) {
+    if (!hasMatch(node)) return null
+    return {
+      ...node,
+      isMatch: node.isMatch,
+      // Mark non-matching nodes that are only shown as path connectors
+      isPathNode: !node.isMatch,
+      children: node.children
+        .map(c => pruneNode(c))
+        .filter(Boolean),
+    }
   }
-  return null
+
+  // Get all true roots (no parent, or parent not in dataset)
+  const roots = allAgents
+    .filter(a => !a.directUpline || !byName.has(a.directUpline))
+    .map(a => byName.get(a.name))
+
+  return roots.map(r => pruneNode(r)).filter(Boolean)
 }
 
 export function getInitials(name) {

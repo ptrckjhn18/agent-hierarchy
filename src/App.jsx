@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { STATUS_CONFIG } from './config'
-import { buildTree, pruneTree } from './utils'
+import { buildFilteredTree } from './utils'
 import { useDebounce, useSheetData } from './hooks'
 import AgentCard from './AgentCard'
 
@@ -20,10 +20,6 @@ export default function App() {
     ['All', ...new Set(allAgents.map(a => a.team).filter(t => t && t !== '—').sort())],
     [allAgents]
   )
-  const allStatuses = useMemo(() =>
-    ['All', ...Object.keys(STATUS_CONFIG).filter(s => allAgents.some(a => a.status === s))],
-    [allAgents]
-  )
 
   const statCounts = useMemo(() => {
     const counts = {}
@@ -31,67 +27,17 @@ export default function App() {
     return counts
   }, [allAgents])
 
-  // Stat cards — with combined Founders & Owners + Entity
   const topStats = useMemo(() => [
-    {
-      label: 'Total Agents',
-      value: allAgents.length,
-      color: '#6366f1',
-      statuses: null, // show all
-      key: 'total',
-    },
-    {
-      label: 'Active Agents',
-      value: statCounts['Active Agent'] || 0,
-      color: '#22c55e',
-      statuses: ['Active Agent'],
-      key: 'active',
-    },
-    {
-      label: 'Entity',
-      value: statCounts['Entity'] || 0,
-      color: '#6366f1',
-      statuses: ['Entity'],
-      key: 'entity',
-    },
-    {
-      label: 'Team Leaders',
-      value: statCounts['Team Leader'] || 0,
-      color: '#f97316',
-      statuses: ['Team Leader'],
-      key: 'leaders',
-    },
-    {
-      label: 'Founders & Owners',
-      value: statCounts['Founders & Owners'] || 0,
-      color: '#ec4899',
-      statuses: ['Founders & Owners'],
-      key: 'founders',
-    },
-    {
-      label: 'Pending Release',
-      value: statCounts['Agent Pending Release'] || 0,
-      color: '#eab308',
-      statuses: ['Agent Pending Release'],
-      key: 'pending',
-    },
-    {
-      label: 'Inactive',
-      value: statCounts['Inactive Agent'] || 0,
-      color: '#f97316',
-      statuses: ['Inactive Agent'],
-      key: 'inactive',
-    },
-    {
-      label: 'Terminated',
-      value: statCounts['Terminated'] || 0,
-      color: '#ef4444',
-      statuses: ['Terminated'],
-      key: 'terminated',
-    },
+    { label:'Total Agents',      value: allAgents.length,                          color:'#6366f1', statuses: null,                      key:'total'     },
+    { label:'Active Agents',     value: statCounts['Active Agent']          || 0,  color:'#22c55e', statuses: ['Active Agent'],           key:'active'    },
+    { label:'Entity',            value: statCounts['Entity']                || 0,  color:'#818cf8', statuses: ['Entity'],                 key:'entity'    },
+    { label:'Team Leaders',      value: statCounts['Team Leader']           || 0,  color:'#f97316', statuses: ['Team Leader'],            key:'leaders'   },
+    { label:'Founders & Owners', value: statCounts['Founders & Owners']    || 0,  color:'#ec4899', statuses: ['Founders & Owners'],      key:'founders'  },
+    { label:'Pending Release',   value: statCounts['Agent Pending Release'] || 0,  color:'#eab308', statuses: ['Agent Pending Release'],  key:'pending'   },
+    { label:'Inactive',          value: statCounts['Inactive Agent']        || 0,  color:'#f97316', statuses: ['Inactive Agent'],         key:'inactive'  },
+    { label:'Terminated',        value: statCounts['Terminated']            || 0,  color:'#ef4444', statuses: ['Terminated'],             key:'terminated'},
   ], [allAgents, statCounts])
 
-  // Handle stat card click — toggle filter
   function handleStatCardClick(stat) {
     if (stat.key === 'total') {
       setActiveStatCard(null)
@@ -99,7 +45,6 @@ export default function App() {
       return
     }
     if (activeStatCard === stat.key) {
-      // Toggle off
       setActiveStatCard(null)
       setFilterStatus('All')
     } else {
@@ -108,37 +53,30 @@ export default function App() {
     }
   }
 
-  // Step 1: apply status + team filters
-  const teamAndStatusFiltered = useMemo(() => {
-    return allAgents.filter(a => {
-      const mSt = filterStatus === 'All' || a.status === filterStatus
-      const mT  = filterTeam   === 'All' || a.team   === filterTeam
-      return mSt && mT
-    })
-  }, [allAgents, filterStatus, filterTeam])
-
-  // Step 2: find matching agents from search
+  // Build the set of agent names that pass ALL active filters
+  // The tree is always built from ALL agents — we just prune branches
+  // that contain zero matching agents
   const matchingNames = useMemo(() => {
-    if (!search) return null
     const sl = search.toLowerCase()
     const names = new Set()
     allAgents.forEach(a => {
-      if (
-        a.name.toLowerCase().includes(sl) ||
-        a.npn.toLowerCase().includes(sl) ||
-        a.email.toLowerCase().includes(sl)
-      ) names.add(a.name)
+      const matchesSearch = !search
+        || a.name.toLowerCase().includes(sl)
+        || a.npn.toLowerCase().includes(sl)
+        || a.email.toLowerCase().includes(sl)
+      const matchesStatus = filterStatus === 'All' || a.status === filterStatus
+      const matchesTeam   = filterTeam   === 'All' || a.team   === filterTeam
+      if (matchesSearch && matchesStatus && matchesTeam) names.add(a.name)
     })
     return names
-  }, [allAgents, search])
+  }, [allAgents, search, filterStatus, filterTeam])
 
-  // Step 3: build + prune tree
+  // No filters active = show everyone
+  const noFiltersActive = !search && filterStatus === 'All' && filterTeam === DEFAULT_TEAM
+
   const tree = useMemo(() => {
-    const agentsForTree = search ? allAgents : teamAndStatusFiltered
-    const roots = buildTree(agentsForTree, matchingNames || undefined)
-    if (!matchingNames) return roots
-    return roots.map(root => pruneTree(root, matchingNames)).filter(Boolean)
-  }, [allAgents, teamAndStatusFiltered, matchingNames, search])
+    return buildFilteredTree(allAgents, noFiltersActive ? null : matchingNames)
+  }, [allAgents, matchingNames, noFiltersActive])
 
   const hasFilters = search || filterStatus !== 'All' || filterTeam !== DEFAULT_TEAM
   const clearFilters = () => {
@@ -147,8 +85,6 @@ export default function App() {
     setFilterTeam(DEFAULT_TEAM)
     setActiveStatCard(null)
   }
-
-  const matchCount = matchingNames ? matchingNames.size : null
 
   return (
     <div style={{ minHeight:'100vh', background:'#f1f5f9', paddingBottom:48 }}>
@@ -189,13 +125,10 @@ export default function App() {
                   onClick={() => handleStatCardClick(s)}
                   style={{
                     background: isActive ? s.color : 'rgba(255,255,255,0.06)',
-                    borderRadius:10,
-                    padding:'10px 16px',
+                    borderRadius:10, padding:'10px 16px',
                     border: isActive ? `2px solid ${s.color}` : '1.5px solid rgba(255,255,255,0.09)',
-                    cursor:'pointer',
-                    textAlign:'left',
-                    transition:'all 0.15s',
-                    minWidth:90,
+                    cursor:'pointer', textAlign:'left',
+                    transition:'all 0.15s', minWidth:90,
                     boxShadow: isActive ? `0 0 0 3px ${s.color}33` : 'none',
                   }}
                 >
@@ -236,7 +169,9 @@ export default function App() {
             style={{ padding:'10px 12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontSize:13, background:'#fff', color: filterStatus === 'All' ? '#94a3b8' : '#0f172a', cursor:'pointer', minWidth:170 }}
           >
             <option value="All">Filter by Status</option>
-            {allStatuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
+            {Object.keys(STATUS_CONFIG).filter(s => allAgents.some(a => a.status === s)).map(s =>
+              <option key={s} value={s}>{s}</option>
+            )}
           </select>
           <select
             value={filterTeam}
@@ -255,18 +190,15 @@ export default function App() {
         </div>
 
         {/* Result info */}
-        {!loading && !error && (
-          <div style={{ fontSize:12, color:'#64748b', marginBottom:12, minHeight:18 }}>
-            {search && matchingNames ? (
-              matchCount === 0
-                ? <span style={{ color:'#ef4444' }}>No agents found matching "<strong>{search}</strong>"</span>
-                : <span>Found <strong style={{ color:'#0f172a' }}>{matchCount}</strong> agent{matchCount !== 1 ? 's' : ''} matching "<strong>{search}</strong>"</span>
-            ) : filterTeam !== 'All' || filterStatus !== 'All' ? (
-              <span>Showing <strong style={{ color:'#0f172a' }}>{teamAndStatusFiltered.length}</strong> agents
-                {filterTeam !== 'All' && <span> in <strong style={{ color:'#0f172a' }}>{filterTeam}</strong></span>}
-                {filterStatus !== 'All' && <span> · <strong style={{ color:'#0f172a' }}>{filterStatus}</strong></span>}
-              </span>
-            ) : null}
+        {!loading && !error && hasFilters && (
+          <div style={{ fontSize:12, color:'#64748b', marginBottom:12 }}>
+            <span>
+              Found <strong style={{ color:'#0f172a' }}>{matchingNames.size}</strong> agent{matchingNames.size !== 1 ? 's' : ''}
+              {search && <span> matching "<strong>{search}</strong>"</span>}
+              {filterTeam !== 'All' && <span> in <strong>{filterTeam}</strong></span>}
+              {filterStatus !== 'All' && <span> · <strong>{filterStatus}</strong></span>}
+              {' '}<span style={{ color:'#94a3b8' }}>(upline path shown dimmed)</span>
+            </span>
           </div>
         )}
 
@@ -293,9 +225,7 @@ export default function App() {
           ) : tree.length === 0 ? (
             <div style={{ textAlign:'center', padding:'48px 20px', color:'#94a3b8' }}>
               <div style={{ fontSize:28, marginBottom:10 }}>🔍</div>
-              <div style={{ fontSize:14 }}>
-                {search ? `No agents found matching "${search}"` : 'No agents match your current filters.'}
-              </div>
+              <div style={{ fontSize:14 }}>No agents match your current filters.</div>
               <button onClick={clearFilters} style={{ marginTop:12, padding:'8px 16px', borderRadius:8, border:'1.5px solid #e2e8f0', background:'#f8fafc', fontSize:13, cursor:'pointer', color:'#334155', fontWeight:600 }}>
                 Clear filters
               </button>
@@ -308,7 +238,7 @@ export default function App() {
         </div>
 
         <p style={{ fontSize:11, color:'#94a3b8', textAlign:'center', marginTop:16, lineHeight:1.7 }}>
-          Click any card to expand details &nbsp;·&nbsp; +/− to expand downline &nbsp;·&nbsp; ↓ = total downline count
+          Click any card to expand details &nbsp;·&nbsp; +/− to expand downline &nbsp;·&nbsp; ↓ = total downline &nbsp;·&nbsp; Dimmed cards = upline path only
         </p>
       </div>
     </div>
