@@ -12,6 +12,7 @@ export default function App() {
   const [searchInput, setSearchInput]   = useState('')
   const [filterStatus, setFilterStatus] = useState('All')
   const [filterTeam, setFilterTeam]     = useState(DEFAULT_TEAM)
+  const [activeStatCard, setActiveStatCard] = useState(null)
 
   const search = useDebounce(searchInput, 350)
 
@@ -24,7 +25,90 @@ export default function App() {
     [allAgents]
   )
 
-  // Step 1: apply status + team filters to get candidate agents
+  const statCounts = useMemo(() => {
+    const counts = {}
+    allAgents.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1 })
+    return counts
+  }, [allAgents])
+
+  // Stat cards — with combined Founders & Owners + Entity
+  const topStats = useMemo(() => [
+    {
+      label: 'Total Agents',
+      value: allAgents.length,
+      color: '#6366f1',
+      statuses: null, // show all
+      key: 'total',
+    },
+    {
+      label: 'Active Agents',
+      value: statCounts['Active Agent'] || 0,
+      color: '#22c55e',
+      statuses: ['Active Agent'],
+      key: 'active',
+    },
+    {
+      label: 'Entity',
+      value: statCounts['Entity'] || 0,
+      color: '#6366f1',
+      statuses: ['Entity'],
+      key: 'entity',
+    },
+    {
+      label: 'Team Leaders',
+      value: statCounts['Team Leader'] || 0,
+      color: '#f97316',
+      statuses: ['Team Leader'],
+      key: 'leaders',
+    },
+    {
+      label: 'Founders & Owners',
+      value: statCounts['Founders & Owners'] || 0,
+      color: '#ec4899',
+      statuses: ['Founders & Owners'],
+      key: 'founders',
+    },
+    {
+      label: 'Pending Release',
+      value: statCounts['Agent Pending Release'] || 0,
+      color: '#eab308',
+      statuses: ['Agent Pending Release'],
+      key: 'pending',
+    },
+    {
+      label: 'Inactive',
+      value: statCounts['Inactive Agent'] || 0,
+      color: '#f97316',
+      statuses: ['Inactive Agent'],
+      key: 'inactive',
+    },
+    {
+      label: 'Terminated',
+      value: statCounts['Terminated'] || 0,
+      color: '#ef4444',
+      statuses: ['Terminated'],
+      key: 'terminated',
+    },
+  ], [allAgents, statCounts])
+
+  // Handle stat card click — toggle filter
+  function handleStatCardClick(stat) {
+    if (stat.key === 'total') {
+      setActiveStatCard(null)
+      setFilterStatus('All')
+      return
+    }
+    if (activeStatCard === stat.key) {
+      // Toggle off
+      setActiveStatCard(null)
+      setFilterStatus('All')
+    } else {
+      setActiveStatCard(stat.key)
+      setFilterStatus(stat.statuses[0])
+    }
+  }
+
+  // Step 1: apply status + team filters
   const teamAndStatusFiltered = useMemo(() => {
     return allAgents.filter(a => {
       const mSt = filterStatus === 'All' || a.status === filterStatus
@@ -33,12 +117,11 @@ export default function App() {
     })
   }, [allAgents, filterStatus, filterTeam])
 
-  // Step 2: find which agents match the search
+  // Step 2: find matching agents from search
   const matchingNames = useMemo(() => {
     if (!search) return null
     const sl = search.toLowerCase()
     const names = new Set()
-    // Search across ALL agents (not just filtered) so we find them in any team
     allAgents.forEach(a => {
       if (
         a.name.toLowerCase().includes(sl) ||
@@ -49,41 +132,20 @@ export default function App() {
     return names
   }, [allAgents, search])
 
-  // Step 3: build tree and prune to only matching branches
+  // Step 3: build + prune tree
   const tree = useMemo(() => {
-    // Use all agents for tree building so hierarchy is always intact
-    // but pass matchingNames to control which roots appear
     const agentsForTree = search ? allAgents : teamAndStatusFiltered
     const roots = buildTree(agentsForTree, matchingNames || undefined)
-
     if (!matchingNames) return roots
-
-    // Prune each root to only show branches with matches
-    return roots
-      .map(root => pruneTree(root, matchingNames))
-      .filter(Boolean)
+    return roots.map(root => pruneTree(root, matchingNames)).filter(Boolean)
   }, [allAgents, teamAndStatusFiltered, matchingNames, search])
-
-  const statCounts = useMemo(() => {
-    const counts = {}
-    allAgents.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1 })
-    return counts
-  }, [allAgents])
-
-  // Stats — removed New Agents as requested
-  const topStats = [
-    { label:'Total Agents',    value: allAgents.length,                          color:'#6366f1' },
-    { label:'Active Agents',   value: statCounts['Active Agent']          || 0,  color:'#22c55e' },
-    { label:'Team Leaders',    value: statCounts['Team Leader']           || 0,  color:'#f97316' },
-    { label:'Pending Release', value: statCounts['Agent Pending Release'] || 0,  color:'#eab308' },
-    { label:'Terminated',      value: statCounts['Terminated']            || 0,  color:'#ef4444' },
-  ]
 
   const hasFilters = search || filterStatus !== 'All' || filterTeam !== DEFAULT_TEAM
   const clearFilters = () => {
     setSearchInput('')
     setFilterStatus('All')
     setFilterTeam(DEFAULT_TEAM)
+    setActiveStatCard(null)
   }
 
   const matchCount = matchingNames ? matchingNames.size : null
@@ -93,17 +155,13 @@ export default function App() {
 
       {/* HEADER */}
       <div style={{ background:'linear-gradient(135deg,#0f172a 0%,#1e293b 100%)', padding:'22px 32px 20px' }}>
-        <div style={{ maxWidth:1040, margin:'0 auto' }}>
-          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
-            <div>
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:5 }}>
-                <div style={{ width:34, height:34, borderRadius:9, background:'linear-gradient(135deg,#6366f1,#a855f7)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🏢</div>
-                <h1 style={{ fontSize:21, fontWeight:700, color:'#fff', letterSpacing:-0.3 }}>Agent Hierarchy</h1>
-              </div>
-              <p style={{ fontSize:12, color:'#64748b' }}>
-                Live · auto-refreshes every 60s
-                {lastUpdated && <span style={{ color:'#475569' }}> · Last sync: {lastUpdated.toLocaleTimeString()}</span>}
-              </p>
+        <div style={{ maxWidth:1200, margin:'0 auto' }}>
+
+          {/* Title row */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap', marginBottom:20 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ width:34, height:34, borderRadius:9, background:'linear-gradient(135deg,#6366f1,#a855f7)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🏢</div>
+              <h1 style={{ fontSize:21, fontWeight:700, color:'#fff', letterSpacing:-0.3 }}>Agent Hierarchy</h1>
             </div>
             <button
               onClick={() => refetch(true)}
@@ -121,20 +179,41 @@ export default function App() {
             </button>
           </div>
 
-          {/* Stats */}
-          <div style={{ display:'flex', gap:10, marginTop:16, flexWrap:'wrap' }}>
-            {topStats.map(s => (
-              <div key={s.label} style={{ background:'rgba(255,255,255,0.06)', borderRadius:10, padding:'8px 14px', border:'1px solid rgba(255,255,255,0.07)', minWidth:80 }}>
-                <div style={{ fontSize:19, fontWeight:700, color:s.color, lineHeight:1 }}>{s.value}</div>
-                <div style={{ fontSize:10, color:'#64748b', fontWeight:500, marginTop:3 }}>{s.label}</div>
-              </div>
-            ))}
+          {/* Stat cards */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            {topStats.map(s => {
+              const isActive = s.key === 'total' ? !activeStatCard : activeStatCard === s.key
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => handleStatCardClick(s)}
+                  style={{
+                    background: isActive ? s.color : 'rgba(255,255,255,0.06)',
+                    borderRadius:10,
+                    padding:'10px 16px',
+                    border: isActive ? `2px solid ${s.color}` : '1.5px solid rgba(255,255,255,0.09)',
+                    cursor:'pointer',
+                    textAlign:'left',
+                    transition:'all 0.15s',
+                    minWidth:90,
+                    boxShadow: isActive ? `0 0 0 3px ${s.color}33` : 'none',
+                  }}
+                >
+                  <div style={{ fontSize:20, fontWeight:700, color: isActive ? '#fff' : s.color, lineHeight:1 }}>
+                    {s.value}
+                  </div>
+                  <div style={{ fontSize:10, color: isActive ? 'rgba(255,255,255,0.85)' : '#64748b', fontWeight:500, marginTop:4, whiteSpace:'nowrap' }}>
+                    {s.label}
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>
 
       {/* BODY */}
-      <div style={{ maxWidth:1040, margin:'0 auto', padding:'22px 24px 0' }}>
+      <div style={{ maxWidth:1200, margin:'0 auto', padding:'22px 24px 0' }}>
 
         {/* Filters */}
         <div style={{ display:'flex', gap:10, marginBottom:14, flexWrap:'wrap' }}>
@@ -151,13 +230,21 @@ export default function App() {
               <button onClick={() => setSearchInput('')} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94a3b8', fontSize:18, lineHeight:1, padding:2 }}>×</button>
             )}
           </div>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            style={{ padding:'10px 12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontSize:13, background:'#fff', color:'#0f172a', cursor:'pointer', minWidth:160 }}>
-            {allStatuses.map(s => <option key={s}>{s}</option>)}
+          <select
+            value={filterStatus}
+            onChange={e => { setFilterStatus(e.target.value); setActiveStatCard(null) }}
+            style={{ padding:'10px 12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontSize:13, background:'#fff', color: filterStatus === 'All' ? '#94a3b8' : '#0f172a', cursor:'pointer', minWidth:170 }}
+          >
+            <option value="All">Filter by Status</option>
+            {allStatuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select value={filterTeam} onChange={e => setFilterTeam(e.target.value)}
-            style={{ padding:'10px 12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontSize:13, background:'#fff', color:'#0f172a', cursor:'pointer', minWidth:160 }}>
-            {allTeams.map(t => <option key={t}>{t}</option>)}
+          <select
+            value={filterTeam}
+            onChange={e => setFilterTeam(e.target.value)}
+            style={{ padding:'10px 12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontSize:13, background:'#fff', color: filterTeam === 'All' ? '#94a3b8' : '#0f172a', cursor:'pointer', minWidth:170 }}
+          >
+            <option value="All">Filter by Team</option>
+            {allTeams.filter(t => t !== 'All').map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           {hasFilters && (
             <button onClick={clearFilters}
@@ -174,8 +261,11 @@ export default function App() {
               matchCount === 0
                 ? <span style={{ color:'#ef4444' }}>No agents found matching "<strong>{search}</strong>"</span>
                 : <span>Found <strong style={{ color:'#0f172a' }}>{matchCount}</strong> agent{matchCount !== 1 ? 's' : ''} matching "<strong>{search}</strong>"</span>
-            ) : filterTeam !== 'All' ? (
-              <span>Showing <strong style={{ color:'#0f172a' }}>{teamAndStatusFiltered.length}</strong> agents in <strong style={{ color:'#0f172a' }}>{filterTeam}</strong></span>
+            ) : filterTeam !== 'All' || filterStatus !== 'All' ? (
+              <span>Showing <strong style={{ color:'#0f172a' }}>{teamAndStatusFiltered.length}</strong> agents
+                {filterTeam !== 'All' && <span> in <strong style={{ color:'#0f172a' }}>{filterTeam}</strong></span>}
+                {filterStatus !== 'All' && <span> · <strong style={{ color:'#0f172a' }}>{filterStatus}</strong></span>}
+              </span>
             ) : null}
           </div>
         )}
@@ -217,33 +307,8 @@ export default function App() {
           )}
         </div>
 
-        {/* Clickable status legend */}
-        {!loading && !error && allAgents.length > 0 && (
-          <div style={{ marginTop:12, display:'flex', flexWrap:'wrap', gap:6 }}>
-            {Object.entries(STATUS_CONFIG).map(([label, cfg]) =>
-              statCounts[label] ? (
-                <div
-                  key={label}
-                  onClick={() => setFilterStatus(filterStatus === label ? 'All' : label)}
-                  style={{
-                    display:'flex', alignItems:'center', gap:5,
-                    background: filterStatus === label ? cfg.bg : '#fff',
-                    border:`1px solid ${filterStatus === label ? cfg.dot : '#e2e8f0'}`,
-                    borderRadius:20, padding:'3px 10px', cursor:'pointer',
-                    transition:'all 0.12s',
-                  }}
-                >
-                  <div style={{ width:6, height:6, borderRadius:'50%', background:cfg.dot }} />
-                  <span style={{ fontSize:11, color:cfg.text, fontWeight:600 }}>{label}</span>
-                  <span style={{ fontSize:11, color:'#94a3b8' }}>({statCounts[label]})</span>
-                </div>
-              ) : null
-            )}
-          </div>
-        )}
-
         <p style={{ fontSize:11, color:'#94a3b8', textAlign:'center', marginTop:16, lineHeight:1.7 }}>
-          Click any card to expand details &nbsp;·&nbsp; +/− to expand downline &nbsp;·&nbsp; ↓ = total downline &nbsp;·&nbsp; Click a status badge to filter
+          Click any card to expand details &nbsp;·&nbsp; +/− to expand downline &nbsp;·&nbsp; ↓ = total downline count
         </p>
       </div>
     </div>
