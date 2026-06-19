@@ -24,7 +24,7 @@
 
     // ── CONFIG ────────────────────────────────────────────────────────────────
     const SHEET_ID = "1-s9YgLHaGx87h528JAvW2dLX4XSrkq7eQeABHIdvzCo";
-    const SHEET_NAME = "Sheet1"; // ← change if your tab is named differently
+    const SHEET_NAME = "Agents Info"; // ← your tab name
     const POLL_MS = 60000;
     const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
 
@@ -95,7 +95,7 @@
           name,
           npn:          row["NPN"]           || "—",
           status:       row["Status"]         || "—",
-          compLevel:    row["Comp Level"]     || "—",
+          compLevel:    row["Comp Level"] || row["Comp level"] || row["Comp"] || "—",
           email:        row["Email"]          || "—",
           team:         row["Team"]           || "—",
           directUpline: row["Direct Upline"]  || null,
