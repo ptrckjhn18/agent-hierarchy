@@ -43,60 +43,45 @@ export function parseCSV(text) {
   return agents
 }
 
-// Always build the full tree from ALL agents.
-// matchingNames = Set of agent names that pass the current filter.
-// Prune branches that have zero matching descendants.
-export function buildFilteredTree(allAgents, matchingNames) {
-  // Build complete tree map from every agent
+// Build a complete lookup map and wire up parent→children
+export function buildFullTree(allAgents) {
   const byName = new Map()
-  allAgents.forEach(a => byName.set(a.name, { ...a, children: [], isMatch: false, isPathNode: false }))
-
-  // Wire up parent→child relationships
+  allAgents.forEach(a => byName.set(a.name, { ...a, children: [] }))
+  const roots = []
   allAgents.forEach(a => {
+    const node = byName.get(a.name)
     if (a.directUpline && byName.has(a.directUpline)) {
-      byName.get(a.directUpline).children.push(byName.get(a.name))
+      byName.get(a.directUpline).children.push(node)
+    } else {
+      roots.push(node)
     }
   })
+  return { byName, roots }
+}
 
-  // If no filter, return all true roots
-  if (!matchingNames) {
-    return allAgents
-      .filter(a => !a.directUpline || !byName.has(a.directUpline))
-      .map(a => byName.get(a.name))
-  }
+// Given a set of matching agent names, prune the full tree so only
+// branches that lead to a match are kept. Non-matching ancestors are
+// kept as dimmed "path" nodes; non-matching nodes with no matching
+// descendants are removed entirely.
+export function pruneToMatches(roots, matchingNames) {
+  function prune(node) {
+    const selfMatches = matchingNames.has(node.name)
+    const prunedChildren = node.children.map(c => prune(c)).filter(Boolean)
 
-  // Mark matching nodes
-  matchingNames.forEach(name => {
-    if (byName.has(name)) byName.get(name).isMatch = true
-  })
+    if (!selfMatches && prunedChildren.length === 0) return null
 
-  // Recursively check if a node or any descendant is a match
-  function hasMatch(node) {
-    if (node.isMatch) return true
-    return node.children.some(c => hasMatch(c))
-  }
-
-  // Prune tree: keep only branches that lead to a match
-  // Preserve full upline path — never drop a parent node
-  function pruneNode(node) {
-    if (!hasMatch(node)) return null
     return {
       ...node,
-      isMatch: node.isMatch,
-      // Mark non-matching nodes that are only shown as path connectors
-      isPathNode: !node.isMatch,
-      children: node.children
-        .map(c => pruneNode(c))
-        .filter(Boolean),
+      isMatch:    selfMatches,
+      isPathNode: !selfMatches,   // ancestor shown only as path connector
+      children:   selfMatches
+        // If this node itself matches, show ALL its children (full downline)
+        ? node.children
+        // Otherwise only show the pruned path children
+        : prunedChildren,
     }
   }
-
-  // Get all true roots (no parent, or parent not in dataset)
-  const roots = allAgents
-    .filter(a => !a.directUpline || !byName.has(a.directUpline))
-    .map(a => byName.get(a.name))
-
-  return roots.map(r => pruneNode(r)).filter(Boolean)
+  return roots.map(r => prune(r)).filter(Boolean)
 }
 
 export function getInitials(name) {

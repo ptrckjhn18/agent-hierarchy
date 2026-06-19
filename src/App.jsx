@@ -1,20 +1,26 @@
 import React, { useState, useMemo } from 'react'
 import { STATUS_CONFIG } from './config'
-import { buildFilteredTree } from './utils'
+import { buildFullTree, pruneToMatches } from './utils'
 import { useDebounce, useSheetData } from './hooks'
 import AgentCard from './AgentCard'
 
 const DEFAULT_TEAM = 'Pinnacle Core'
 
 export default function App() {
-  const { allAgents, loading, error, lastUpdated, refetch } = useSheetData()
+  const { allAgents, loading, error, refetch } = useSheetData()
 
-  const [searchInput, setSearchInput]   = useState('')
-  const [filterStatus, setFilterStatus] = useState('All')
-  const [filterTeam, setFilterTeam]     = useState(DEFAULT_TEAM)
+  const [searchInput, setSearchInput]       = useState('')
+  const [filterStatus, setFilterStatus]     = useState('All')
+  const [filterTeam, setFilterTeam]         = useState(DEFAULT_TEAM)
   const [activeStatCard, setActiveStatCard] = useState(null)
 
   const search = useDebounce(searchInput, 350)
+
+  // Build the full tree once when agents load — never rebuild on filter
+  const { byName, roots } = useMemo(
+    () => buildFullTree(allAgents),
+    [allAgents]
+  )
 
   const allTeams = useMemo(() =>
     ['All', ...new Set(allAgents.map(a => a.team).filter(t => t && t !== '—').sort())],
@@ -28,34 +34,30 @@ export default function App() {
   }, [allAgents])
 
   const topStats = useMemo(() => [
-    { label:'Total Agents',      value: allAgents.length,                          color:'#6366f1', statuses: null,                      key:'total'     },
-    { label:'Active Agents',     value: statCounts['Active Agent']          || 0,  color:'#22c55e', statuses: ['Active Agent'],           key:'active'    },
-    { label:'Entity',            value: statCounts['Entity']                || 0,  color:'#818cf8', statuses: ['Entity'],                 key:'entity'    },
-    { label:'Team Leaders',      value: statCounts['Team Leader']           || 0,  color:'#f97316', statuses: ['Team Leader'],            key:'leaders'   },
-    { label:'Founders & Owners', value: statCounts['Founders & Owners']    || 0,  color:'#ec4899', statuses: ['Founders & Owners'],      key:'founders'  },
-    { label:'Pending Release',   value: statCounts['Agent Pending Release'] || 0,  color:'#eab308', statuses: ['Agent Pending Release'],  key:'pending'   },
-    { label:'Inactive',          value: statCounts['Inactive Agent']        || 0,  color:'#f97316', statuses: ['Inactive Agent'],         key:'inactive'  },
-    { label:'Terminated',        value: statCounts['Terminated']            || 0,  color:'#ef4444', statuses: ['Terminated'],             key:'terminated'},
+    { label:'Total Agents',      value: allAgents.length,                          color:'#6366f1', status: null,                      key:'total'      },
+    { label:'Active Agents',     value: statCounts['Active Agent']          || 0,  color:'#22c55e', status: 'Active Agent',            key:'active'     },
+    { label:'Entity',            value: statCounts['Entity']                || 0,  color:'#818cf8', status: 'Entity',                  key:'entity'     },
+    { label:'Team Leaders',      value: statCounts['Team Leader']           || 0,  color:'#f97316', status: 'Team Leader',             key:'leaders'    },
+    { label:'Founders & Owners', value: statCounts['Founders & Owners']    || 0,  color:'#ec4899', status: 'Founders & Owners',       key:'founders'   },
+    { label:'Pending Release',   value: statCounts['Agent Pending Release'] || 0,  color:'#eab308', status: 'Agent Pending Release',   key:'pending'    },
+    { label:'Inactive',          value: statCounts['Inactive Agent']        || 0,  color:'#f97316', status: 'Inactive Agent',          key:'inactive'   },
+    { label:'Terminated',        value: statCounts['Terminated']            || 0,  color:'#ef4444', status: 'Terminated',              key:'terminated' },
   ], [allAgents, statCounts])
 
   function handleStatCardClick(stat) {
     if (stat.key === 'total') {
       setActiveStatCard(null)
       setFilterStatus('All')
-      return
-    }
-    if (activeStatCard === stat.key) {
+    } else if (activeStatCard === stat.key) {
       setActiveStatCard(null)
       setFilterStatus('All')
     } else {
       setActiveStatCard(stat.key)
-      setFilterStatus(stat.statuses[0])
+      setFilterStatus(stat.status)
     }
   }
 
-  // Build the set of agent names that pass ALL active filters
-  // The tree is always built from ALL agents — we just prune branches
-  // that contain zero matching agents
+  // Determine the set of agent names that pass ALL active filters
   const matchingNames = useMemo(() => {
     const sl = search.toLowerCase()
     const names = new Set()
@@ -71,12 +73,13 @@ export default function App() {
     return names
   }, [allAgents, search, filterStatus, filterTeam])
 
-  // No filters active = show everyone
   const noFiltersActive = !search && filterStatus === 'All' && filterTeam === DEFAULT_TEAM
 
+  // Prune the pre-built tree — never rebuild it from scratch
   const tree = useMemo(() => {
-    return buildFilteredTree(allAgents, noFiltersActive ? null : matchingNames)
-  }, [allAgents, matchingNames, noFiltersActive])
+    if (noFiltersActive) return roots
+    return pruneToMatches(roots, matchingNames)
+  }, [roots, matchingNames, noFiltersActive])
 
   const hasFilters = search || filterStatus !== 'All' || filterTeam !== DEFAULT_TEAM
   const clearFilters = () => {
@@ -93,7 +96,7 @@ export default function App() {
       <div style={{ background:'linear-gradient(135deg,#0f172a 0%,#1e293b 100%)', padding:'22px 32px 20px' }}>
         <div style={{ maxWidth:1200, margin:'0 auto' }}>
 
-          {/* Title row */}
+          {/* Title + Refresh */}
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap', marginBottom:20 }}>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               <div style={{ width:34, height:34, borderRadius:9, background:'linear-gradient(135deg,#6366f1,#a855f7)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🏢</div>
@@ -107,31 +110,25 @@ export default function App() {
                 border:'1.5px solid rgba(255,255,255,0.15)',
                 background:'rgba(255,255,255,0.08)', color:'#e2e8f0',
                 fontSize:13, fontWeight:600, cursor: loading ? 'wait' : 'pointer',
-                display:'flex', alignItems:'center', gap:6,
-                opacity: loading ? 0.6 : 1,
+                display:'flex', alignItems:'center', gap:6, opacity: loading ? 0.6 : 1,
               }}
             >
               {loading ? '⏳ Loading…' : '↻ Refresh now'}
             </button>
           </div>
 
-          {/* Stat cards */}
+          {/* Interactive stat cards */}
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             {topStats.map(s => {
               const isActive = s.key === 'total' ? !activeStatCard : activeStatCard === s.key
               return (
-                <button
-                  key={s.key}
-                  onClick={() => handleStatCardClick(s)}
-                  style={{
-                    background: isActive ? s.color : 'rgba(255,255,255,0.06)',
-                    borderRadius:10, padding:'10px 16px',
-                    border: isActive ? `2px solid ${s.color}` : '1.5px solid rgba(255,255,255,0.09)',
-                    cursor:'pointer', textAlign:'left',
-                    transition:'all 0.15s', minWidth:90,
-                    boxShadow: isActive ? `0 0 0 3px ${s.color}33` : 'none',
-                  }}
-                >
+                <button key={s.key} onClick={() => handleStatCardClick(s)} style={{
+                  background: isActive ? s.color : 'rgba(255,255,255,0.06)',
+                  borderRadius:10, padding:'10px 16px',
+                  border: isActive ? `2px solid ${s.color}` : '1.5px solid rgba(255,255,255,0.09)',
+                  cursor:'pointer', textAlign:'left', transition:'all 0.15s', minWidth:90,
+                  boxShadow: isActive ? `0 0 0 3px ${s.color}33` : 'none',
+                }}>
                   <div style={{ fontSize:20, fontWeight:700, color: isActive ? '#fff' : s.color, lineHeight:1 }}>
                     {s.value}
                   </div>
@@ -192,13 +189,11 @@ export default function App() {
         {/* Result info */}
         {!loading && !error && hasFilters && (
           <div style={{ fontSize:12, color:'#64748b', marginBottom:12 }}>
-            <span>
-              Found <strong style={{ color:'#0f172a' }}>{matchingNames.size}</strong> agent{matchingNames.size !== 1 ? 's' : ''}
-              {search && <span> matching "<strong>{search}</strong>"</span>}
-              {filterTeam !== 'All' && <span> in <strong>{filterTeam}</strong></span>}
-              {filterStatus !== 'All' && <span> · <strong>{filterStatus}</strong></span>}
-              {' '}<span style={{ color:'#94a3b8' }}>(upline path shown dimmed)</span>
-            </span>
+            Found <strong style={{ color:'#0f172a' }}>{matchingNames.size}</strong> agent{matchingNames.size !== 1 ? 's' : ''}
+            {search && <span> matching "<strong style={{ color:'#0f172a' }}>{search}</strong>"</span>}
+            {filterTeam !== 'All' && <span> in <strong style={{ color:'#0f172a' }}>{filterTeam}</strong></span>}
+            {filterStatus !== 'All' && <span> · <strong style={{ color:'#0f172a' }}>{filterStatus}</strong></span>}
+            <span style={{ color:'#94a3b8' }}> · dimmed cards show upline path only</span>
           </div>
         )}
 
@@ -238,7 +233,7 @@ export default function App() {
         </div>
 
         <p style={{ fontSize:11, color:'#94a3b8', textAlign:'center', marginTop:16, lineHeight:1.7 }}>
-          Click any card to expand details &nbsp;·&nbsp; +/− to expand downline &nbsp;·&nbsp; ↓ = total downline &nbsp;·&nbsp; Dimmed cards = upline path only
+          Click any card to expand details &nbsp;·&nbsp; +/− to expand downline &nbsp;·&nbsp; ↓ = total downline &nbsp;·&nbsp; Dimmed = upline path
         </p>
       </div>
     </div>
