@@ -1,6 +1,5 @@
 import { COMP_COLORS } from './config'
 
-// ── CSV PARSER ────────────────────────────────────────────────────────────────
 function parseCSVLine(line) {
   const cols = []; let cur = '', inQ = false
   for (let i = 0; i < line.length; i++) {
@@ -44,23 +43,69 @@ export function parseCSV(text) {
   return agents
 }
 
-// ── TREE BUILDER ──────────────────────────────────────────────────────────────
-export function buildTree(agents) {
+// Builds tree from ALL agents, but only returns roots that contain
+// at least one matching agent (by name set). This prevents unrelated
+// root nodes (like Kayden Moreno) from appearing in search results.
+export function buildTree(allAgents, matchingNames) {
+  // Build full tree from all agents so hierarchy is intact
   const byName = new Map()
-  agents.forEach(a => byName.set(a.name, { ...a, children: [] }))
-  const roots = []
-  agents.forEach(a => {
+  allAgents.forEach(a => byName.set(a.name, { ...a, children: [] }))
+
+  allAgents.forEach(a => {
     const node = byName.get(a.name)
-    if (!a.directUpline || !byName.has(a.directUpline)) {
-      roots.push(node)
-    } else {
+    if (a.directUpline && byName.has(a.directUpline)) {
       byName.get(a.directUpline).children.push(node)
     }
   })
-  return roots
+
+  // If no filter active, return all roots
+  if (!matchingNames) {
+    return allAgents
+      .filter(a => !a.directUpline || !byName.has(a.directUpline))
+      .map(a => byName.get(a.name))
+  }
+
+  // Otherwise find the true root of each matching agent
+  // and only include roots that have a matching descendant
+  function nodeContainsMatch(node) {
+    if (matchingNames.has(node.name)) return true
+    return (node.children || []).some(c => nodeContainsMatch(c))
+  }
+
+  // For each matching agent, walk up to find its true root
+  const rootsToShow = new Set()
+  matchingNames.forEach(name => {
+    let current = allAgents.find(a => a.name === name)
+    if (!current) return
+    // Walk up upline chain to find the root
+    while (current.directUpline && byName.has(current.directUpline)) {
+      current = byName.get(current.directUpline)
+    }
+    rootsToShow.add(current.name)
+  })
+
+  return [...rootsToShow]
+    .map(name => byName.get(name))
+    .filter(Boolean)
 }
 
-// ── HELPERS ───────────────────────────────────────────────────────────────────
+// Prune tree to only show branches containing matching agents
+export function pruneTree(node, matchingNames) {
+  if (matchingNames.has(node.name)) {
+    // This node matches — show it with all its children collapsed
+    return { ...node, isMatch: true, children: node.children || [] }
+  }
+  // Check children for matches
+  const prunedChildren = (node.children || [])
+    .map(c => pruneTree(c, matchingNames))
+    .filter(Boolean)
+
+  if (prunedChildren.length > 0) {
+    return { ...node, isMatch: false, children: prunedChildren, forceExpand: true }
+  }
+  return null
+}
+
 export function getInitials(name) {
   const p = name.split(' ').filter(Boolean)
   return p.length === 1 ? p[0][0].toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase()

@@ -1,20 +1,20 @@
 import React, { useState, useMemo } from 'react'
 import { STATUS_CONFIG } from './config'
-import { buildTree } from './utils'
+import { buildTree, pruneTree } from './utils'
 import { useDebounce, useSheetData } from './hooks'
 import AgentCard from './AgentCard'
+
+const DEFAULT_TEAM = 'Pinnacle Core'
 
 export default function App() {
   const { allAgents, loading, error, lastUpdated, refetch } = useSheetData()
 
   const [searchInput, setSearchInput]   = useState('')
   const [filterStatus, setFilterStatus] = useState('All')
-  const [filterTeam, setFilterTeam]     = useState('All')
+  const [filterTeam, setFilterTeam]     = useState(DEFAULT_TEAM)
 
-  // Debounce search — waits 350ms after last keystroke
   const search = useDebounce(searchInput, 350)
 
-  // Dropdown options — only recompute when data changes
   const allTeams = useMemo(() =>
     ['All', ...new Set(allAgents.map(a => a.team).filter(t => t && t !== '—').sort())],
     [allAgents]
@@ -24,21 +24,45 @@ export default function App() {
     [allAgents]
   )
 
-  // Filter flat list first (fast), then build tree once
-  const filtered = useMemo(() => {
-    const sl = search.toLowerCase()
+  // Step 1: apply status + team filters to get candidate agents
+  const teamAndStatusFiltered = useMemo(() => {
     return allAgents.filter(a => {
-      const ms  = !search
-        || a.name.toLowerCase().includes(sl)
-        || a.npn.toLowerCase().includes(sl)
-        || a.email.toLowerCase().includes(sl)
       const mSt = filterStatus === 'All' || a.status === filterStatus
       const mT  = filterTeam   === 'All' || a.team   === filterTeam
-      return ms && mSt && mT
+      return mSt && mT
     })
-  }, [allAgents, search, filterStatus, filterTeam])
+  }, [allAgents, filterStatus, filterTeam])
 
-  const tree = useMemo(() => buildTree(filtered), [filtered])
+  // Step 2: find which agents match the search
+  const matchingNames = useMemo(() => {
+    if (!search) return null
+    const sl = search.toLowerCase()
+    const names = new Set()
+    // Search across ALL agents (not just filtered) so we find them in any team
+    allAgents.forEach(a => {
+      if (
+        a.name.toLowerCase().includes(sl) ||
+        a.npn.toLowerCase().includes(sl) ||
+        a.email.toLowerCase().includes(sl)
+      ) names.add(a.name)
+    })
+    return names
+  }, [allAgents, search])
+
+  // Step 3: build tree and prune to only matching branches
+  const tree = useMemo(() => {
+    // Use all agents for tree building so hierarchy is always intact
+    // but pass matchingNames to control which roots appear
+    const agentsForTree = search ? allAgents : teamAndStatusFiltered
+    const roots = buildTree(agentsForTree, matchingNames || undefined)
+
+    if (!matchingNames) return roots
+
+    // Prune each root to only show branches with matches
+    return roots
+      .map(root => pruneTree(root, matchingNames))
+      .filter(Boolean)
+  }, [allAgents, teamAndStatusFiltered, matchingNames, search])
 
   const statCounts = useMemo(() => {
     const counts = {}
@@ -46,22 +70,28 @@ export default function App() {
     return counts
   }, [allAgents])
 
+  // Stats — removed New Agents as requested
   const topStats = [
     { label:'Total Agents',    value: allAgents.length,                          color:'#6366f1' },
     { label:'Active Agents',   value: statCounts['Active Agent']          || 0,  color:'#22c55e' },
-    { label:'New Agents',      value: statCounts['New Agent']             || 0,  color:'#06b6d4' },
     { label:'Team Leaders',    value: statCounts['Team Leader']           || 0,  color:'#f97316' },
     { label:'Pending Release', value: statCounts['Agent Pending Release'] || 0,  color:'#eab308' },
     { label:'Terminated',      value: statCounts['Terminated']            || 0,  color:'#ef4444' },
   ]
 
-  const hasFilters = search || filterStatus !== 'All' || filterTeam !== 'All'
-  const clearFilters = () => { setSearchInput(''); setFilterStatus('All'); setFilterTeam('All') }
+  const hasFilters = search || filterStatus !== 'All' || filterTeam !== DEFAULT_TEAM
+  const clearFilters = () => {
+    setSearchInput('')
+    setFilterStatus('All')
+    setFilterTeam(DEFAULT_TEAM)
+  }
+
+  const matchCount = matchingNames ? matchingNames.size : null
 
   return (
     <div style={{ minHeight:'100vh', background:'#f1f5f9', paddingBottom:48 }}>
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <div style={{ background:'linear-gradient(135deg,#0f172a 0%,#1e293b 100%)', padding:'22px 32px 20px' }}>
         <div style={{ maxWidth:1040, margin:'0 auto' }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
@@ -103,7 +133,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── BODY ── */}
+      {/* BODY */}
       <div style={{ maxWidth:1040, margin:'0 auto', padding:'22px 24px 0' }}>
 
         {/* Filters */}
@@ -137,10 +167,16 @@ export default function App() {
           )}
         </div>
 
-        {/* Result count */}
-        {!loading && !error && hasFilters && (
-          <div style={{ fontSize:12, color:'#64748b', marginBottom:12 }}>
-            Showing <strong style={{ color:'#0f172a' }}>{filtered.length}</strong> of {allAgents.length} agents
+        {/* Result info */}
+        {!loading && !error && (
+          <div style={{ fontSize:12, color:'#64748b', marginBottom:12, minHeight:18 }}>
+            {search && matchingNames ? (
+              matchCount === 0
+                ? <span style={{ color:'#ef4444' }}>No agents found matching "<strong>{search}</strong>"</span>
+                : <span>Found <strong style={{ color:'#0f172a' }}>{matchCount}</strong> agent{matchCount !== 1 ? 's' : ''} matching "<strong>{search}</strong>"</span>
+            ) : filterTeam !== 'All' ? (
+              <span>Showing <strong style={{ color:'#0f172a' }}>{teamAndStatusFiltered.length}</strong> agents in <strong style={{ color:'#0f172a' }}>{filterTeam}</strong></span>
+            ) : null}
           </div>
         )}
 
@@ -167,7 +203,9 @@ export default function App() {
           ) : tree.length === 0 ? (
             <div style={{ textAlign:'center', padding:'48px 20px', color:'#94a3b8' }}>
               <div style={{ fontSize:28, marginBottom:10 }}>🔍</div>
-              <div style={{ fontSize:14 }}>No agents match your current filters.</div>
+              <div style={{ fontSize:14 }}>
+                {search ? `No agents found matching "${search}"` : 'No agents match your current filters.'}
+              </div>
               <button onClick={clearFilters} style={{ marginTop:12, padding:'8px 16px', borderRadius:8, border:'1.5px solid #e2e8f0', background:'#f8fafc', fontSize:13, cursor:'pointer', color:'#334155', fontWeight:600 }}>
                 Clear filters
               </button>

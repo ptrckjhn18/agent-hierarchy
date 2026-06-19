@@ -2,21 +2,16 @@ import React, { useState, useMemo, memo } from 'react'
 import { STATUS_CONFIG, DEFAULT_STATUS } from './config'
 import { getInitials, getCompColor, countDescendants } from './utils'
 
-const AgentCard = memo(function AgentCard({ agent, depth, searchTerm }) {
-  const [expanded, setExpanded]     = useState(depth < 1)
+const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpand }) {
+  const isMatch     = agent.isMatch || false
+  const shouldOpen  = depth < 1 || forceExpand || agent.forceExpand
+  const [expanded, setExpanded]     = useState(shouldOpen)
   const [showDetail, setShowDetail] = useState(false)
 
   const hasChildren   = agent.children && agent.children.length > 0
   const status        = STATUS_CONFIG[agent.status] || DEFAULT_STATUS
   const compColor     = getCompColor(agent.compLevel)
   const downlineCount = useMemo(() => hasChildren ? countDescendants(agent) : 0, [agent, hasChildren])
-
-  const sl      = searchTerm?.toLowerCase() || ''
-  const isMatch = sl && (
-    agent.name.toLowerCase().includes(sl) ||
-    agent.npn.toLowerCase().includes(sl) ||
-    agent.email.toLowerCase().includes(sl)
-  )
 
   return (
     <div style={{ marginLeft: depth === 0 ? 0 : 24, position: 'relative' }}>
@@ -28,8 +23,7 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm }) {
       )}
 
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5, marginTop: depth === 0 ? 0 : 6 }}>
-
-        {/* Expand toggle */}
+        {/* Toggle */}
         {hasChildren ? (
           <button
             onClick={() => setExpanded(e => !e)}
@@ -53,12 +47,14 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm }) {
           style={{
             display:'flex', alignItems:'center', gap:10,
             background: isMatch ? '#fffbeb' : '#fff',
-            border: isMatch    ? '1.5px solid #f59e0b'
+            border: isMatch    ? '2px solid #f59e0b'
                   : showDetail ? '1.5px solid #6366f1'
                   :              '1.5px solid #e2e8f0',
             borderRadius:11, padding:'9px 12px',
             cursor:'pointer', flex:1, maxWidth:760,
-            boxShadow: showDetail ? '0 0 0 3px rgba(99,102,241,0.08)' : '0 1px 2px rgba(0,0,0,0.04)',
+            boxShadow: isMatch    ? '0 0 0 3px rgba(245,158,11,0.1)'
+                     : showDetail ? '0 0 0 3px rgba(99,102,241,0.08)'
+                     :              '0 1px 2px rgba(0,0,0,0.04)',
             transition:'border-color 0.12s, box-shadow 0.12s',
           }}
         >
@@ -77,6 +73,11 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm }) {
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:600, fontSize:13, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
               {agent.name}
+              {isMatch && searchTerm && (
+                <span style={{ marginLeft:8, fontSize:10, background:'#fef3c7', color:'#92400e', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>
+                  MATCH
+                </span>
+              )}
             </div>
             <div style={{ fontSize:11, color:'#94a3b8', marginTop:1 }}>{agent.npn}</div>
           </div>
@@ -101,7 +102,6 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm }) {
             </div>
           )}
 
-          {/* Downline count */}
           {hasChildren && (
             <div style={{ fontSize:11, color:'#94a3b8', flexShrink:0, minWidth:36, textAlign:'right' }}>
               {downlineCount}↓
@@ -146,7 +146,13 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm }) {
         <div style={{ position:'relative' }}>
           <div style={{ position:'absolute', left:9, top:0, bottom:16, width:2, background:'#e2e8f0' }} />
           {agent.children.map(child => (
-            <AgentCard key={child.name} agent={child} depth={depth + 1} searchTerm={searchTerm} />
+            <AgentCard
+              key={child.name}
+              agent={child}
+              depth={depth + 1}
+              searchTerm={searchTerm}
+              forceExpand={child.forceExpand}
+            />
           ))}
         </div>
       )}
