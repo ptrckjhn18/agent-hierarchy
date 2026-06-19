@@ -4,23 +4,18 @@ import { buildFullTree, pruneToMatches } from './utils'
 import { useDebounce, useSheetData } from './hooks'
 import AgentCard from './AgentCard'
 
-const DEFAULT_TEAM = 'Pinnacle Core'
-
 export default function App() {
   const { allAgents, loading, error, refetch } = useSheetData()
 
   const [searchInput, setSearchInput]       = useState('')
   const [filterStatus, setFilterStatus]     = useState('All')
-  const [filterTeam, setFilterTeam]         = useState(DEFAULT_TEAM)
+  const [filterTeam, setFilterTeam]         = useState('All')
   const [activeStatCard, setActiveStatCard] = useState(null)
 
   const search = useDebounce(searchInput, 350)
 
-  // Build the full tree once when agents load — never rebuild on filter
-  const { byName, roots } = useMemo(
-    () => buildFullTree(allAgents),
-    [allAgents]
-  )
+  // Build the full tree ONCE — never rebuild on filter changes
+  const { roots } = useMemo(() => buildFullTree(allAgents), [allAgents])
 
   const allTeams = useMemo(() =>
     ['All', ...new Set(allAgents.map(a => a.team).filter(t => t && t !== '—').sort())],
@@ -34,14 +29,14 @@ export default function App() {
   }, [allAgents])
 
   const topStats = useMemo(() => [
-    { label:'Total Agents',      value: allAgents.length,                          color:'#6366f1', status: null,                      key:'total'      },
-    { label:'Active Agents',     value: statCounts['Active Agent']          || 0,  color:'#22c55e', status: 'Active Agent',            key:'active'     },
-    { label:'Entity',            value: statCounts['Entity']                || 0,  color:'#818cf8', status: 'Entity',                  key:'entity'     },
-    { label:'Team Leaders',      value: statCounts['Team Leader']           || 0,  color:'#f97316', status: 'Team Leader',             key:'leaders'    },
-    { label:'Founders & Owners', value: statCounts['Founders & Owners']    || 0,  color:'#ec4899', status: 'Founders & Owners',       key:'founders'   },
-    { label:'Pending Release',   value: statCounts['Agent Pending Release'] || 0,  color:'#eab308', status: 'Agent Pending Release',   key:'pending'    },
-    { label:'Inactive',          value: statCounts['Inactive Agent']        || 0,  color:'#f97316', status: 'Inactive Agent',          key:'inactive'   },
-    { label:'Terminated',        value: statCounts['Terminated']            || 0,  color:'#ef4444', status: 'Terminated',              key:'terminated' },
+    { label:'Total Agents',      value: allAgents.length,                          color:'#6366f1', status: null,                     key:'total'      },
+    { label:'Active Agents',     value: statCounts['Active Agent']          || 0,  color:'#22c55e', status: 'Active Agent',           key:'active'     },
+    { label:'Entity',            value: statCounts['Entity']                || 0,  color:'#818cf8', status: 'Entity',                 key:'entity'     },
+    { label:'Team Leaders',      value: statCounts['Team Leader']           || 0,  color:'#f97316', status: 'Team Leader',            key:'leaders'    },
+    { label:'Founders & Owners', value: statCounts['Founders & Owners']    || 0,  color:'#ec4899', status: 'Founders & Owners',      key:'founders'   },
+    { label:'Pending Release',   value: statCounts['Agent Pending Release'] || 0,  color:'#eab308', status: 'Agent Pending Release',  key:'pending'    },
+    { label:'Inactive',          value: statCounts['Inactive Agent']        || 0,  color:'#f97316', status: 'Inactive Agent',         key:'inactive'   },
+    { label:'Terminated',        value: statCounts['Terminated']            || 0,  color:'#ef4444', status: 'Terminated',             key:'terminated' },
   ], [allAgents, statCounts])
 
   function handleStatCardClick(stat) {
@@ -57,35 +52,41 @@ export default function App() {
     }
   }
 
-  // Determine the set of agent names that pass ALL active filters
+  // Agents that pass the current filters — used for pruning
   const matchingNames = useMemo(() => {
+    // No filters at all → show everything (null = no pruning)
+    const hasSearch = !!search
+    const hasStatus = filterStatus !== 'All'
+    const hasTeam   = filterTeam   !== 'All'
+    if (!hasSearch && !hasStatus && !hasTeam) return null
+
     const sl = search.toLowerCase()
     const names = new Set()
     allAgents.forEach(a => {
-      const matchesSearch = !search
+      const ms = !hasSearch
         || a.name.toLowerCase().includes(sl)
         || a.npn.toLowerCase().includes(sl)
         || a.email.toLowerCase().includes(sl)
-      const matchesStatus = filterStatus === 'All' || a.status === filterStatus
-      const matchesTeam   = filterTeam   === 'All' || a.team   === filterTeam
-      if (matchesSearch && matchesStatus && matchesTeam) names.add(a.name)
+      const mSt = !hasStatus || a.status === filterStatus
+      const mT  = !hasTeam   || a.team   === filterTeam
+      if (ms && mSt && mT) names.add(a.name)
     })
     return names
   }, [allAgents, search, filterStatus, filterTeam])
 
-  const noFiltersActive = !search && filterStatus === 'All' && filterTeam === DEFAULT_TEAM
-
-  // Prune the pre-built tree — never rebuild it from scratch
+  // Always prune from the same pre-built roots
+  // null matchingNames = show full tree with no dimming
   const tree = useMemo(() => {
-    if (noFiltersActive) return roots
+    if (!matchingNames) return roots
     return pruneToMatches(roots, matchingNames)
-  }, [roots, matchingNames, noFiltersActive])
+  }, [roots, matchingNames])
 
-  const hasFilters = search || filterStatus !== 'All' || filterTeam !== DEFAULT_TEAM
+  const hasFilters = !!search || filterStatus !== 'All' || filterTeam !== 'All'
+
   const clearFilters = () => {
     setSearchInput('')
     setFilterStatus('All')
-    setFilterTeam(DEFAULT_TEAM)
+    setFilterTeam('All')
     setActiveStatCard(null)
   }
 
@@ -117,7 +118,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* Interactive stat cards */}
+          {/* Stat cards */}
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             {topStats.map(s => {
               const isActive = s.key === 'total' ? !activeStatCard : activeStatCard === s.key
@@ -187,7 +188,7 @@ export default function App() {
         </div>
 
         {/* Result info */}
-        {!loading && !error && hasFilters && (
+        {!loading && !error && hasFilters && matchingNames && (
           <div style={{ fontSize:12, color:'#64748b', marginBottom:12 }}>
             Found <strong style={{ color:'#0f172a' }}>{matchingNames.size}</strong> agent{matchingNames.size !== 1 ? 's' : ''}
             {search && <span> matching "<strong style={{ color:'#0f172a' }}>{search}</strong>"</span>}
