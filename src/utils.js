@@ -17,83 +17,94 @@ export function parseCSV(text) {
   if (lines.length < 2) return []
   const headers = parseCSVLine(lines[0])
   const agents = []
-
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i])
     const row = {}
     headers.forEach((h, j) => { row[h] = (cols[j] || '').trim() })
-
     const name = row['Agent Name'] || ''
     if (!name) continue
-
     const uplines = []
     for (let u = 1; u <= 10; u++) {
       const val = row[`Upline ${u}`] || ''
       if (val) uplines.push(val)
     }
-
     agents.push({
       id:           i,
       name,
-      npn:          row['NPN']           || '—',
-      status:       row['Status']         || '—',
-      compLevel:    row['Comp Level']     || '—',
-      email:        row['Email']          || '—',
-      team:         row['Team']           || '—',
-      directUpline: row['Direct Upline']  || null,
+      npn:          row['NPN']          || '—',
+      status:       row['Status']        || '—',
+      compLevel:    row['Comp Level']    || '—',
+      email:        row['Email']         || '—',
+      team:         row['Team']          || '—',
+      directUpline: row['Direct Upline'] || null,
       uplines,
     })
   }
   return agents
 }
 
-// Build full tree from ALL agents
-// Virtual root nodes are created for any upline name
-// (e.g. "Pinnacle Life Group") that has no agent row
 export function buildFullTree(allAgents) {
+  // Step 1: build a map of name → node (with empty children)
   const byName = new Map()
   allAgents.forEach(a => byName.set(a.name, { ...a, children: [] }))
 
-  // Create virtual node for Pinnacle Life Group if not in sheet
+  // Step 2: create virtual Pinnacle Life Group root if not already a real agent row
   if (!byName.has('Pinnacle Life Group')) {
     byName.set('Pinnacle Life Group', {
       id: 'root',
       name: 'Pinnacle Life Group',
-      npn: '—', status: '—', compLevel: '—',
-      email: '—', team: '—',
+      npn: '—', status: 'Founders & Owners',
+      compLevel: '—', email: '—', team: '—',
       directUpline: null, uplines: [],
       children: [],
       isVirtual: true,
     })
   }
 
-  // Wire up parent → children
+  const plgNode = byName.get('Pinnacle Life Group')
+
+  // Step 3: wire each agent to its parent — strictly using directUpline only
+  // Never fall back to Pinnacle Life Group automatically to avoid runaway trees
+  const attached = new Set()
   allAgents.forEach(a => {
+    if (a.name === 'Pinnacle Life Group') return
     const node = byName.get(a.name)
     const parentName = a.directUpline
-    if (parentName && byName.has(parentName)) {
+
+    if (parentName && parentName !== a.name && byName.has(parentName)) {
+      // Normal case: parent exists in map
       byName.get(parentName).children.push(node)
-    } else if (!parentName) {
-      // No direct upline → attach to Pinnacle Life Group
-      byName.get('Pinnacle Life Group').children.push(node)
+      attached.add(a.name)
+    } else if (parentName === 'Pinnacle Life Group' || !parentName) {
+      // Explicitly rooted at PLG or no upline
+      plgNode.children.push(node)
+      attached.add(a.name)
     }
-    // If directUpline doesn't exist in map at all, treat as root-level under PLG
-    else {
-      byName.get('Pinnacle Life Group').children.push(node)
+    // If directUpline is set but doesn't exist in map — skip wiring,
+    // they'll be caught as unattached below
+  })
+
+  // Step 4: any agent not yet attached goes directly under PLG
+  allAgents.forEach(a => {
+    if (a.name === 'Pinnacle Life Group') return
+    if (!attached.has(a.name)) {
+      plgNode.children.push(byName.get(a.name))
     }
   })
 
-  // Root = Pinnacle Life Group only
-  const plg = byName.get('Pinnacle Life Group')
-  return { byName, roots: [plg] }
+  return { byName, roots: [plgNode] }
 }
 
-// Prune tree to only show branches containing matching agents
-// Matched nodes show full downline; path ancestors are dimmed
+// Prune tree to only branches containing matching agents
+// Matched agents show full downline; ancestors are dimmed path nodes
 export function pruneToMatches(roots, matchingNames) {
-  function prune(node) {
+  function prune(node, depth = 0) {
+    // Safety: prevent infinite recursion (shouldn't happen with clean data)
+    if (depth > 20) return null
     const selfMatches = matchingNames.has(node.name)
-    const prunedChildren = node.children.map(c => prune(c)).filter(Boolean)
+    const prunedChildren = node.children
+      .map(c => prune(c, depth + 1))
+      .filter(Boolean)
     if (!selfMatches && prunedChildren.length === 0) return null
     return {
       ...node,
@@ -110,9 +121,11 @@ export function getInitials(name) {
   return p.length === 1 ? p[0][0].toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase()
 }
 
-export function countDescendants(node) {
+export function countDescendants(node, depth = 0) {
+  // Safety cap to prevent stack overflow
+  if (depth > 20) return 0
   let c = 0
-  ;(node.children || []).forEach(ch => { c += 1 + countDescendants(ch) })
+  ;(node.children || []).forEach(ch => { c += 1 + countDescendants(ch, depth + 1) })
   return c
 }
 
