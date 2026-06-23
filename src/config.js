@@ -17,6 +17,24 @@ export const STATUS_CONFIG = {
 }
 export const DEFAULT_STATUS = { bg:'#f1f5f9', text:'#64748b', dot:'#94a3b8' }
 
+// Grouped status buckets that power the four top-level stat cards.
+// `statuses: null` on "all" means "every agent regardless of status".
+export const STATUS_GROUPS = [
+  { key:'all',        label:'All Agents', color:'#6366f1', icon:'◍', statuses: null },
+  { key:'active',     label:'Active',     color:'#10b981', icon:'●',
+    statuses:['Founders & Owners', 'Team Leader', 'Entity', 'Active Agent'] },
+  { key:'inactive',   label:'Inactive',   color:'#f59e0b', icon:'◐',
+    statuses:['Agent Pending Release', 'Agent Release Approved', 'Inactive Agent'] },
+  { key:'terminated', label:'Terminated', color:'#ef4444', icon:'○',
+    statuses:['Terminated'] },
+]
+
+// Fast lookup: status string -> group key (excludes the "all" bucket)
+export const STATUS_TO_GROUP = STATUS_GROUPS.reduce((map, g) => {
+  if (g.statuses) g.statuses.forEach(s => { map[s] = g.key })
+  return map
+}, {})
+
 export const COMP_COLORS = [
   '#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899',
   '#f97316','#eab308','#22c55e','#06b6d4','#3b82f6',

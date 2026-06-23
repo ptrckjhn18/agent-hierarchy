@@ -129,6 +129,18 @@ export function countDescendants(node, depth = 0) {
   return c
 }
 
+export function timeAgo(date) {
+  if (!date) return null
+  const s = Math.floor((Date.now() - date.getTime()) / 1000)
+  if (s < 10)  return 'just now'
+  if (s < 60)  return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60)  return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24)  return `${h}h ago`
+  return date.toLocaleDateString()
+}
+
 const compColorMap = {}
 export function getCompColor(level) {
   if (!level || level === '—') return '#94a3b8'

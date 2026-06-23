@@ -1,0 +1,14 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# local tooling
+.claude/
+
+# logs / env
+*.log
+.env
+.env.local
+.DS_Store
