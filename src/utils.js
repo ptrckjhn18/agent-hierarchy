@@ -117,8 +117,11 @@ export function buildFullTree(allAgents) {
 }
 
 // Prune the tree to only branches containing matching agents.
-// Matched agents show their full downline; ancestors become dimmed path nodes.
-export function pruneToMatches(roots, matchingKeys) {
+// Non-matching ancestors become dimmed "path" nodes that anchor matches in place.
+//   strict = true  → matched nodes show only their *matching* descendants
+//                    (honest counts; hides off-filter agents like inactive ones).
+//   strict = false → matched nodes show their *full* downline (full-hierarchy view).
+export function pruneToMatches(roots, matchingKeys, strict = true) {
   function prune(node, depth = 0) {
     if (depth > 30) return null
     const selfMatches = matchingKeys.has(node.key)
@@ -126,19 +129,42 @@ export function pruneToMatches(roots, matchingKeys) {
       .map(c => prune(c, depth + 1))
       .filter(Boolean)
     if (!selfMatches && prunedChildren.length === 0) return null
+
+    const useFull = !strict && selfMatches
     return {
       ...node,
       isMatch:    selfMatches,
       isPathNode: !selfMatches,
-      children:   selfMatches ? node.children : prunedChildren,
-      // matched nodes keep their (precomputed) full count; path nodes only count
-      // the small pruned branch that survived
-      descendantCount: selfMatches
+      children:   useFull ? node.children : prunedChildren,
+      descendantCount: useFull
         ? node.descendantCount
         : prunedChildren.reduce((s, c) => s + 1 + (c.descendantCount || 0), 0),
     }
   }
   return roots.map(r => prune(r)).filter(Boolean)
+}
+
+// Agents that share a name with another agent (distinct people — NPN is unique).
+// Uplines are stored by name, so a shared name can wire a downline to the wrong
+// person; `usedAsUpline` flags the names where that actually bites.
+export function findNameConflicts(allAgents) {
+  const byName = new Map()
+  allAgents.forEach(a => {
+    if (!byName.has(a.name)) byName.set(a.name, [])
+    byName.get(a.name).push(a)
+  })
+  const uplineNames = new Set(allAgents.map(a => a.directUpline).filter(Boolean))
+
+  const conflicts = []
+  byName.forEach((agents, name) => {
+    if (agents.length > 1) {
+      conflicts.push({ name, agents, usedAsUpline: uplineNames.has(name) })
+    }
+  })
+  // Risky ones (a shared name that someone points to as upline) first.
+  return conflicts.sort((a, b) =>
+    (Number(b.usedAsUpline) - Number(a.usedAsUpline)) || a.name.localeCompare(b.name)
+  )
 }
 
 export function getInitials(name) {

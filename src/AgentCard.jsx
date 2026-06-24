@@ -3,12 +3,14 @@ import { STATUS_CONFIG, DEFAULT_STATUS } from './config'
 import { getInitials, getCompColor } from './utils'
 import { ExpandAllContext } from './context'
 
-const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpand }) {
+const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpand, strictExpand }) {
   const isMatch    = agent.isMatch    || false
   const isPathNode = agent.isPathNode || false
 
-  // Path nodes auto-expand so the matched agent is always visible
-  const [expanded, setExpanded] = useState(isPathNode || forceExpand || depth < 1)
+  // In strict-filter mode the pruned tree is small and every node is relevant,
+  // so open everything; otherwise only path nodes, forced nodes, and the top
+  // level start expanded.
+  const [expanded, setExpanded] = useState(strictExpand || isPathNode || forceExpand || depth < 1)
   const [showDetail, setShowDetail] = useState(false)
 
   // Path nodes must stay open so the matched descendant below them is visible —
@@ -123,6 +125,7 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpan
               depth={depth + 1}
               searchTerm={searchTerm}
               forceExpand={child.isPathNode}
+              strictExpand={strictExpand}
             />
           ))}
         </div>

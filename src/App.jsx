@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { STATUS_GROUPS, STATUS_TO_GROUP } from './config'
-import { buildFullTree, pruneToMatches, agentKey, timeAgo } from './utils'
+import { buildFullTree, pruneToMatches, findNameConflicts, agentKey, timeAgo } from './utils'
 import { useDebounce, useSheetData } from './hooks'
 import { ExpandAllContext } from './context'
 import AgentCard from './AgentCard'
+import SavedFilters from './SavedFilters'
+import ConflictsPanel from './ConflictsPanel'
 
 export default function App() {
   const { allAgents, loading, error, lastUpdated, refetch } = useSheetData()
@@ -11,6 +13,8 @@ export default function App() {
   const [searchInput, setSearchInput] = useState('')
   const [filterTeam, setFilterTeam]   = useState('All')
   const [activeGroup, setActiveGroup] = useState('all') // stat-card bucket drives status filtering
+  const [showFull, setShowFull]       = useState(false) // full-hierarchy vs strict filtering
+  const [conflictsOpen, setConflictsOpen] = useState(false)
   const [expandAll, setExpandAll]     = useState({ version: 0, expanded: null })
 
   const search = useDebounce(searchInput, 350)
@@ -23,7 +27,6 @@ export default function App() {
     [allAgents]
   )
 
-  // Counts per grouped bucket (drives the four stat cards)
   const groupCounts = useMemo(() => {
     const counts = { all: allAgents.length, active: 0, inactive: 0, terminated: 0 }
     allAgents.forEach(a => {
@@ -33,10 +36,11 @@ export default function App() {
     return counts
   }, [allAgents])
 
+  const conflicts = useMemo(() => findNameConflicts(allAgents), [allAgents])
+
   function selectGroup(key) {
     setActiveGroup(prev => (key !== 'all' && prev === key ? 'all' : key))
   }
-
   function doExpandAll(expanded) {
     setExpandAll(s => ({ version: s.version + 1, expanded }))
   }
@@ -47,7 +51,6 @@ export default function App() {
   // Keys of agents that pass current filters — used for pruning the tree
   const matchingKeys = useMemo(() => {
     if (!hasFilters) return null
-
     const sl = search.toLowerCase()
     const groupStatuses = groupActive
       ? new Set(STATUS_GROUPS.find(g => g.key === activeGroup).statuses)
@@ -67,14 +70,29 @@ export default function App() {
   }, [allAgents, search, filterTeam, activeGroup, groupActive, hasFilters])
 
   const tree = useMemo(
-    () => (matchingKeys ? pruneToMatches(roots, matchingKeys) : roots),
-    [roots, matchingKeys]
+    () => (matchingKeys ? pruneToMatches(roots, matchingKeys, !showFull) : roots),
+    [roots, matchingKeys, showFull]
   )
 
+  // Signature of the current view; changing it remounts the tree so node
+  // expansion re-initialises correctly (strict view opens all, full view doesn't).
+  const treeKey = hasFilters
+    ? `${search}|${filterTeam}|${activeGroup}|${showFull ? 'full' : 'strict'}`
+    : 'all'
+  // While filtering, open every node so matches (and, in full mode, the revealed
+  // off-filter agents) are visible without manual drilling.
+  const strictExpand = hasFilters
+
+  // Reset any sticky expand/collapse-all when the filter view changes
+  useEffect(() => { setExpandAll({ version: 0, expanded: null }) }, [treeKey])
+  // Each new filter starts clean (strict); the full-hierarchy toggle is per-view
+  useEffect(() => { setShowFull(false) }, [search, filterTeam, activeGroup])
+
   const clearFilters = () => {
-    setSearchInput('')
-    setFilterTeam('All')
-    setActiveGroup('all')
+    setSearchInput(''); setFilterTeam('All'); setActiveGroup('all'); setShowFull(false)
+  }
+  const applySaved = f => {
+    setSearchInput(f.search || ''); setFilterTeam(f.team || 'All'); setActiveGroup(f.group || 'all')
   }
 
   const updatedLabel = timeAgo(lastUpdated)
@@ -101,6 +119,11 @@ export default function App() {
           </div>
 
           <div className="header-actions">
+            {!loading && !error && conflicts.length > 0 && (
+              <button className="btn btn-warn" onClick={() => setConflictsOpen(true)} title="Agents sharing a name">
+                ⚠ {conflicts.length} name{conflicts.length !== 1 ? 's' : ''}
+              </button>
+            )}
             {!loading && !error && updatedLabel && (
               <span className="updated">
                 <span className={'updated-dot' + (lastUpdated && Date.now() - lastUpdated.getTime() > 120000 ? ' stale' : '')} />
@@ -122,8 +145,7 @@ export default function App() {
             const value = groupCounts[g.key] ?? 0
             const isActive = activeGroup === g.key
             const pct = g.key !== 'all' && groupCounts.all
-              ? Math.round((value / groupCounts.all) * 100)
-              : null
+              ? Math.round((value / groupCounts.all) * 100) : null
             return (
               <button
                 key={g.key}
@@ -175,6 +197,12 @@ export default function App() {
             </select>
           </div>
 
+          <SavedFilters
+            current={{ search, team: filterTeam, group: activeGroup }}
+            hasFilters={hasFilters}
+            onApply={applySaved}
+          />
+
           <div className="seg">
             <button onClick={() => doExpandAll(true)} title="Expand entire tree">⊕ Expand</button>
             <button onClick={() => doExpandAll(false)} title="Collapse entire tree">⊖ Collapse</button>
@@ -194,7 +222,13 @@ export default function App() {
               <span className="chip"><span className="dot" style={{ background: activeGroupMeta.color }} />{activeGroupMeta.label}</span>
             )}
             {filterTeam !== 'All' && <span className="chip">{filterTeam}</span>}
-            <span className="hint">· dimmed cards show the upline path only</span>
+
+            <label className="switch" title="Reveal the complete downline under matched agents">
+              <input type="checkbox" checked={showFull} onChange={e => setShowFull(e.target.checked)} />
+              <span className="switch-track"><span className="switch-thumb" /></span>
+              Show full hierarchy
+            </label>
+            <span className="hint">{showFull ? '· off-filter agents shown' : '· faded cards = upline path'}</span>
           </div>
         )}
 
@@ -224,17 +258,27 @@ export default function App() {
             </div>
           ) : (
             <ExpandAllContext.Provider value={expandAll}>
-              {tree.map(root => (
-                <AgentCard key={root.key} agent={root} depth={0} searchTerm={search} />
-              ))}
+              <div key={treeKey}>
+                {tree.map(root => (
+                  <AgentCard key={root.key} agent={root} depth={0} searchTerm={search} strictExpand={strictExpand} />
+                ))}
+              </div>
             </ExpandAllContext.Provider>
           )}
         </div>
 
         <p className="footnote">
-          Click a card for details &nbsp;·&nbsp; <kbd>+</kbd>/<kbd>−</kbd> toggles a downline &nbsp;·&nbsp; <b>n↓</b> = total downline &nbsp;·&nbsp; dimmed = upline path
+          Click a card for details &nbsp;·&nbsp; <kbd>+</kbd>/<kbd>−</kbd> toggles a downline &nbsp;·&nbsp; <b>n↓</b> = total downline &nbsp;·&nbsp; faded = upline path
         </p>
       </div>
+
+      {conflictsOpen && (
+        <ConflictsPanel
+          conflicts={conflicts}
+          onClose={() => setConflictsOpen(false)}
+          onInspect={a => { setConflictsOpen(false); setActiveGroup('all'); setFilterTeam('All'); setSearchInput(a.npn) }}
+        />
+      )}
     </div>
   )
 }
