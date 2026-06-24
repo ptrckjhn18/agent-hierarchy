@@ -1,15 +1,29 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { STATUS_GROUPS, STATUS_TO_GROUP } from './config'
 import { buildFullTree, pruneToMatches, findNameConflicts, agentKey, timeAgo } from './utils'
 import { useDebounce, useSheetData } from './hooks'
 import { ExpandAllContext } from './context'
+import { loadSession, saveSession, clearSession } from './auth'
 import AgentCard from './AgentCard'
 import SavedFilters from './SavedFilters'
 import ConflictsPanel from './ConflictsPanel'
 import UplineFilter from './UplineFilter'
+import Gate from './Gate'
 
+// Auth wrapper: render the password gate until there's a valid session,
+// then the dashboard. Splitting keeps useSheetData out of any conditional.
 export default function App() {
-  const { allAgents, loading, error, lastUpdated, refetch } = useSheetData()
+  const [session, setSession] = useState(loadSession)
+
+  const onAuthed = useCallback(s => { saveSession(s); setSession(s) }, [])
+  const onUnauthorized = useCallback(() => { clearSession(); setSession(null) }, [])
+
+  if (!session) return <Gate onAuthed={onAuthed} />
+  return <Dashboard token={session.token} onUnauthorized={onUnauthorized} />
+}
+
+function Dashboard({ token, onUnauthorized }) {
+  const { allAgents, loading, error, lastUpdated, refetch } = useSheetData(token, onUnauthorized)
 
   const [searchInput, setSearchInput] = useState('')
   const [filterTeam, setFilterTeam]   = useState('All')
@@ -149,6 +163,7 @@ export default function App() {
             <button className="btn btn-ghost-dark" onClick={() => refetch(true)} disabled={loading}>
               {loading ? '⏳ Loading…' : '↻ Refresh'}
             </button>
+            <button className="btn btn-ghost-dark" onClick={onUnauthorized} title="Sign out">⎋ Sign out</button>
           </div>
         </div>
       </header>

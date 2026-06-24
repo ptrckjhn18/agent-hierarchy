@@ -12,3 +12,6 @@ dist/
 .env
 .env.local
 .DS_Store
+
+# netlify local
+.netlify/

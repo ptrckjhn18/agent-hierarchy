@@ -12,15 +12,16 @@ function parseCSVLine(line) {
   return cols.map(c => c.replace(/^"|"$/g, '').trim())
 }
 
-export function parseCSV(text) {
-  const lines = text.trim().split('\n')
-  if (lines.length < 2) return []
-  const headers = parseCSVLine(lines[0])
+// Build agent objects from a header row + data rows (array-of-arrays).
+// Shared by the CSV path and the Sheets-API path (which returns `values`).
+export function agentsFromRows(rows) {
+  if (!rows || rows.length < 2) return []
+  const headers = rows[0].map(h => (h || '').toString().trim())
   const agents = []
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i])
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i] || []
     const row = {}
-    headers.forEach((h, j) => { row[h] = (cols[j] || '').trim() })
+    headers.forEach((h, j) => { row[h] = (cols[j] || '').toString().trim() })
     const name = row['Agent Name'] || ''
     if (!name) continue
     const uplines = []
@@ -41,6 +42,10 @@ export function parseCSV(text) {
     })
   }
   return agents
+}
+
+export function parseCSV(text) {
+  return agentsFromRows(text.trim().split('\n').map(parseCSVLine))
 }
 
 // Stable, unique identity for an agent. NPN is unique across the sheet, so two

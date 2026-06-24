@@ -1,7 +1,10 @@
-export const SHEET_ID   = '1-2BMyb3i2G8ivhUnkIHJmC8Y1FOuooX7ioOUPgevcgo'
-export const SHEET_NAME = 'AgentsInfo'
 export const POLL_MS    = 60000
-export const CSV_URL    = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`
+
+// Authenticated serverless proxy endpoints (Netlify Functions).
+// The sheet ID/credentials live only on the server (Netlify env vars), never
+// in the client bundle.
+export const LOGIN_ENDPOINT  = '/.netlify/functions/login'
+export const AGENTS_ENDPOINT = '/.netlify/functions/agents'
 
 export const STATUS_CONFIG = {
   'Active Agent':          { bg:'#dcfce7', text:'#15803d', dot:'#22c55e' },

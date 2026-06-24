@@ -342,6 +342,43 @@ button { cursor: pointer; }
 .detail-v { font-size: 12.5px; color: var(--slate-700); font-weight: 500; word-break: break-word; line-height: 1.5; }
 
 /* ============================================================
+   Password gate
+   ============================================================ */
+.gate {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: radial-gradient(1200px 600px at 50% -10%, #1b2740 0%, var(--header-bg-1) 55%);
+}
+.gate-card {
+  width: 100%; max-width: 380px; background: var(--surface);
+  border-radius: var(--r-xl); box-shadow: var(--sh-lg); padding: 32px 28px 24px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  animation: rise 0.4s cubic-bezier(0.2,0.7,0.2,1) both;
+}
+.gate-logo {
+  width: 52px; height: 52px; border-radius: 15px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--indigo), #a855f7); box-shadow: 0 8px 24px rgba(99,102,241,0.45); margin-bottom: 16px;
+}
+.gate-title { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+.gate-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; margin-bottom: 22px; }
+.gate-label { align-self: flex-start; font-size: 12px; font-weight: 600; color: var(--slate-600); margin-bottom: 6px; }
+.gate-input {
+  width: 100%; padding: 12px 14px; border-radius: var(--r-md); font-size: 14px;
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); outline: none;
+  transition: border-color var(--ease), box-shadow var(--ease);
+}
+.gate-input:focus { border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(99,102,241,0.14); }
+.gate-input.error { border-color: var(--c-terminated); box-shadow: 0 0 0 3px rgba(239,68,68,0.12); }
+.gate-error { align-self: flex-start; font-size: 12.5px; color: var(--c-terminated); font-weight: 600; margin-top: 8px; }
+.gate-btn {
+  width: 100%; margin-top: 16px; padding: 12px; border-radius: var(--r-md); border: none;
+  background: var(--indigo); color: #fff; font-size: 14px; font-weight: 700;
+  transition: background var(--ease), opacity var(--ease);
+}
+.gate-btn:hover:not(:disabled) { background: var(--indigo-600); }
+.gate-btn:disabled { opacity: 0.55; cursor: default; }
+.gate-note { font-size: 11px; color: var(--slate-400); line-height: 1.6; margin-top: 18px; }
+
+/* ============================================================
    Buttons (extra variants)
    ============================================================ */
 .btn-primary { background: var(--indigo); color: #fff; border-color: var(--indigo-600); }
