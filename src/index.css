@@ -560,26 +560,36 @@ button { cursor: pointer; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .container { padding: 0 14px; }
   .header-inner { padding: 14px 16px; }
+  .header-actions { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .toolbar { gap: 8px; }
   .search { min-width: 100%; }
   .select { min-width: 0; width: 100%; }
-  .select-wrap { flex: 1; }
+  .select-wrap { flex: 1 1 140px; }
+  .upline { min-width: 100%; flex-basis: 100%; }
   .detail { grid-template-columns: 1fr; }
 }
 
 /* Narrow phones: keep tree rows readable — drop secondary pills
    (still available in the expanded detail panel) and tighten spacing. */
 @media (max-width: 560px) {
-  .tree-card { padding: 12px 10px 18px 8px; }
-  .card { max-width: none; gap: 9px; padding: 8px 10px; }
+  .header-actions { gap: 6px; }
+  .header-actions .btn { padding: 8px 10px; font-size: 12px; }
+  .updated { display: none; } /* free up the row; timestamp is non-essential */
+  .brand-sub { display: none; }
+
+  .tree-card { padding: 12px 8px 18px 6px; overflow-x: hidden; }
+  .card { max-width: none; gap: 9px; padding: 8px 10px; min-width: 0; }
   .pill-team, .pill-comp { display: none; }
-  .avatar { width: 33px; height: 33px; }
-  .node.child { margin-left: 18px; }
-  .node-connector-h { left: -13px; width: 11px; }
-  .node-connector-v { left: -13px; }
-  .downline { min-width: 30px; }
+  .avatar { width: 32px; height: 32px; }
+  .node.child { margin-left: 16px; }
+  .node-connector-h { left: -12px; width: 10px; }
+  .node-connector-v { left: -12px; }
+  .node-children::before { left: 8px; }
+  .downline { min-width: 26px; font-size: 10.5px; }
   .card-name { font-size: 13px; }
+  .card-npn { font-size: 10.5px; }
   .stat-value { font-size: 26px; }
+  .stat-card { padding: 13px 13px 12px; }
 }
 
 /* ============================================================

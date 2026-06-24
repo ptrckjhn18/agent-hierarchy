@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, memo } from 'react'
-import { STATUS_CONFIG, DEFAULT_STATUS } from './config'
+import { statusGroupColor } from './config'
 import { getInitials, getCompColor } from './utils'
 import { ExpandAllContext } from './context'
 
@@ -28,7 +28,7 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpan
   }, [expandAll.version])
 
   const hasChildren   = agent.children && agent.children.length > 0
-  const status        = STATUS_CONFIG[agent.status] || DEFAULT_STATUS
+  const statusColor   = statusGroupColor(agent.status) // initials badge = status at a glance
   const compColor     = getCompColor(agent.compLevel)
   const downlineCount = agent.descendantCount || 0
 
@@ -61,9 +61,9 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpan
         {/* Card */}
         <div className={cardClass} onClick={() => !isPathNode && setShowDetail(d => !d)}>
           <div className="avatar" style={{
-            background: `linear-gradient(135deg, ${compColor}1f, ${compColor}3d)`,
-            border: `2px solid ${compColor}55`, color: compColor,
-          }}>
+            background: `linear-gradient(135deg, ${statusColor}26, ${statusColor}45)`,
+            border: `2px solid ${statusColor}66`, color: statusColor,
+          }} title={agent.status}>
             {getInitials(agent.name)}
           </div>
 
@@ -78,11 +78,6 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpan
           {agent.team && agent.team !== '—' && (
             <span className="pill pill-team">{agent.team}</span>
           )}
-
-          <span className="pill" style={{ background: status.bg, color: status.text }}>
-            <span className="dot" style={{ background: status.dot }} />
-            {agent.status}
-          </span>
 
           {agent.compLevel && agent.compLevel !== '—' && (
             <span className="pill pill-comp" style={{ background: `${compColor}1a`, color: compColor }}>

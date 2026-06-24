@@ -38,6 +38,16 @@ export const STATUS_TO_GROUP = STATUS_GROUPS.reduce((map, g) => {
   return map
 }, {})
 
+// group key -> accent color
+export const GROUP_COLOR = STATUS_GROUPS.reduce((m, g) => { m[g.key] = g.color; return m }, {})
+
+// At-a-glance color for an agent's status (drives the initials badge):
+// active = green, inactive = orange, terminated = red, unknown = neutral.
+export function statusGroupColor(status) {
+  const key = STATUS_TO_GROUP[status]
+  return (key && GROUP_COLOR[key]) || '#94a3b8'
+}
+
 export const COMP_COLORS = [
   '#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899',
   '#f97316','#eab308','#22c55e','#06b6d4','#3b82f6',

@@ -55,6 +55,31 @@ export function agentKey(a) {
   return a.npn && a.npn !== '—' ? `npn:${a.npn}` : `row:${a.id}`
 }
 
+// Comp levels that always sink to the bottom regardless of value.
+const COMP_BOTTOM = new Set(['HEALTH ONLY', 'LOA'])
+function compSortValue(comp) {
+  const n = parseFloat(comp)
+  return Number.isFinite(n) ? n : -Infinity // blanks/unknowns sit below numbers
+}
+// Order siblings: Founders & Owners pinned on top, then Comp Level high→low,
+// with HEALTH ONLY / LOA always at the very bottom. Name breaks ties.
+function compareSiblings(a, b) {
+  const fa = a.status === 'Founders & Owners' ? 0 : 1
+  const fb = b.status === 'Founders & Owners' ? 0 : 1
+  if (fa !== fb) return fa - fb
+  const ba = COMP_BOTTOM.has((a.compLevel || '').toUpperCase()) ? 1 : 0
+  const bb = COMP_BOTTOM.has((b.compLevel || '').toUpperCase()) ? 1 : 0
+  if (ba !== bb) return ba - bb
+  const na = compSortValue(a.compLevel), nb = compSortValue(b.compLevel)
+  if (na !== nb) return nb - na
+  return a.name.localeCompare(b.name)
+}
+function sortTree(node, depth = 0) {
+  if (depth > 30 || !node.children.length) return
+  node.children.sort(compareSiblings)
+  node.children.forEach(c => sortTree(c, depth + 1))
+}
+
 // Single post-order pass that records each node's total downline on the node,
 // so AgentCard never has to re-walk its subtree while rendering.
 function computeDescendantCounts(node, depth = 0) {
@@ -116,6 +141,7 @@ export function buildFullTree(allAgents) {
     if (!attached.has(node.key)) plgNode.children.push(node)
   })
 
+  sortTree(plgNode)
   computeDescendantCounts(plgNode)
 
   return { byKey, byName, roots: [plgNode] }
