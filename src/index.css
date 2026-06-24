@@ -353,6 +353,43 @@ button { cursor: pointer; }
 .btn-warn:hover { background: #fef3c7; }
 
 /* ============================================================
+   Upline combobox
+   ============================================================ */
+.upline { position: relative; min-width: 210px; }
+.upline-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--slate-400); pointer-events: none; display: flex; }
+.upline-input {
+  width: 100%; padding: 11px 30px 11px 34px; border-radius: var(--r-md);
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  outline: none; box-shadow: var(--sh-xs); font-size: 13.5px;
+  transition: border-color var(--ease), box-shadow var(--ease);
+}
+.upline-input::placeholder { color: var(--slate-400); }
+.upline-input.has-value { color: var(--text); font-weight: 600; }
+.upline-input:focus { border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(99,102,241,0.13); }
+.upline-clear {
+  position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+  background: var(--slate-100); border: none; color: var(--slate-500); border-radius: 50%;
+  width: 20px; height: 20px; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.upline-clear:hover { background: var(--slate-200); color: var(--slate-700); }
+.upline-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30; max-height: 320px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  box-shadow: var(--sh-lg); padding: 5px; animation: fadeIn 0.13s ease both;
+}
+.upline-opt {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  background: none; border: none; padding: 8px 10px; border-radius: var(--r-sm);
+}
+.upline-opt:hover { background: var(--slate-50); }
+.upline-opt.sel { background: #eef2ff; }
+.upline-opt-name { flex: 1; min-width: 0; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.upline-opt-count {
+  flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--slate-500);
+  background: var(--slate-100); border-radius: var(--r-pill); padding: 1px 8px; font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
    Saved filters menu
    ============================================================ */
 .saved { position: relative; }

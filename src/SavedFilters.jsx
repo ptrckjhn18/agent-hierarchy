@@ -15,6 +15,7 @@ function describe(f) {
   const parts = []
   if (f.group && f.group !== 'all') parts.push(STATUS_GROUPS.find(g => g.key === f.group)?.label || f.group)
   if (f.team && f.team !== 'All') parts.push(f.team)
+  if (f.upline && f.upline !== 'All') parts.push(`▲ ${f.upline}`)
   if (f.search) parts.push(`“${f.search}”`)
   return parts.join(' · ') || 'No filters'
 }
@@ -41,7 +42,7 @@ export default function SavedFilters({ current, hasFilters, onApply }) {
     const trimmed = name.trim()
     if (!trimmed) return
     setList(l => [
-      { id: Date.now().toString(36), name: trimmed, search: current.search, team: current.team, group: current.group },
+      { id: Date.now().toString(36), name: trimmed, search: current.search, team: current.team, upline: current.upline, group: current.group },
       ...l.filter(f => f.name !== trimmed),
     ])
     setName(''); setNaming(false)

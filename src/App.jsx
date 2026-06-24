@@ -6,12 +6,14 @@ import { ExpandAllContext } from './context'
 import AgentCard from './AgentCard'
 import SavedFilters from './SavedFilters'
 import ConflictsPanel from './ConflictsPanel'
+import UplineFilter from './UplineFilter'
 
 export default function App() {
   const { allAgents, loading, error, lastUpdated, refetch } = useSheetData()
 
   const [searchInput, setSearchInput] = useState('')
   const [filterTeam, setFilterTeam]   = useState('All')
+  const [filterUpline, setFilterUpline] = useState('All')
   const [activeGroup, setActiveGroup] = useState('all') // stat-card bucket drives status filtering
   const [showFull, setShowFull]       = useState(false) // full-hierarchy vs strict filtering
   const [conflictsOpen, setConflictsOpen] = useState(false)
@@ -26,6 +28,18 @@ export default function App() {
     [...new Set(allAgents.map(a => a.team).filter(t => t && t !== '—'))].sort(),
     [allAgents]
   )
+
+  // Direct uplines that actually have reports, biggest sections first
+  const uplineOptions = useMemo(() => {
+    const counts = new Map()
+    allAgents.forEach(a => {
+      const u = a.directUpline
+      if (u) counts.set(u, (counts.get(u) || 0) + 1)
+    })
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  }, [allAgents])
 
   const groupCounts = useMemo(() => {
     const counts = { all: allAgents.length, active: 0, inactive: 0, terminated: 0 }
@@ -46,7 +60,7 @@ export default function App() {
   }
 
   const groupActive = activeGroup && activeGroup !== 'all'
-  const hasFilters  = !!search || filterTeam !== 'All' || groupActive
+  const hasFilters  = !!search || filterTeam !== 'All' || filterUpline !== 'All' || groupActive
 
   // Keys of agents that pass current filters — used for pruning the tree
   const matchingKeys = useMemo(() => {
@@ -62,12 +76,13 @@ export default function App() {
         || a.name.toLowerCase().includes(sl)
         || a.npn.toLowerCase().includes(sl)
         || a.email.toLowerCase().includes(sl)
-      const mGroup = !groupStatuses || groupStatuses.has(a.status)
-      const mTeam  = filterTeam === 'All' || a.team === filterTeam
-      if (mSearch && mGroup && mTeam) keys.add(agentKey(a))
+      const mGroup  = !groupStatuses || groupStatuses.has(a.status)
+      const mTeam   = filterTeam === 'All' || a.team === filterTeam
+      const mUpline = filterUpline === 'All' || a.directUpline === filterUpline
+      if (mSearch && mGroup && mTeam && mUpline) keys.add(agentKey(a))
     })
     return keys
-  }, [allAgents, search, filterTeam, activeGroup, groupActive, hasFilters])
+  }, [allAgents, search, filterTeam, filterUpline, activeGroup, groupActive, hasFilters])
 
   const tree = useMemo(
     () => (matchingKeys ? pruneToMatches(roots, matchingKeys, !showFull) : roots),
@@ -77,7 +92,7 @@ export default function App() {
   // Signature of the current view; changing it remounts the tree so node
   // expansion re-initialises correctly (strict view opens all, full view doesn't).
   const treeKey = hasFilters
-    ? `${search}|${filterTeam}|${activeGroup}|${showFull ? 'full' : 'strict'}`
+    ? `${search}|${filterTeam}|${filterUpline}|${activeGroup}|${showFull ? 'full' : 'strict'}`
     : 'all'
   // While filtering, open every node so matches (and, in full mode, the revealed
   // off-filter agents) are visible without manual drilling.
@@ -86,13 +101,14 @@ export default function App() {
   // Reset any sticky expand/collapse-all when the filter view changes
   useEffect(() => { setExpandAll({ version: 0, expanded: null }) }, [treeKey])
   // Each new filter starts clean (strict); the full-hierarchy toggle is per-view
-  useEffect(() => { setShowFull(false) }, [search, filterTeam, activeGroup])
+  useEffect(() => { setShowFull(false) }, [search, filterTeam, filterUpline, activeGroup])
 
   const clearFilters = () => {
-    setSearchInput(''); setFilterTeam('All'); setActiveGroup('all'); setShowFull(false)
+    setSearchInput(''); setFilterTeam('All'); setFilterUpline('All'); setActiveGroup('all'); setShowFull(false)
   }
   const applySaved = f => {
-    setSearchInput(f.search || ''); setFilterTeam(f.team || 'All'); setActiveGroup(f.group || 'all')
+    setSearchInput(f.search || ''); setFilterTeam(f.team || 'All')
+    setFilterUpline(f.upline || 'All'); setActiveGroup(f.group || 'all')
   }
 
   const updatedLabel = timeAgo(lastUpdated)
@@ -197,8 +213,10 @@ export default function App() {
             </select>
           </div>
 
+          <UplineFilter value={filterUpline} options={uplineOptions} onChange={setFilterUpline} />
+
           <SavedFilters
-            current={{ search, team: filterTeam, group: activeGroup }}
+            current={{ search, team: filterTeam, upline: filterUpline, group: activeGroup }}
             hasFilters={hasFilters}
             onApply={applySaved}
           />
@@ -222,6 +240,7 @@ export default function App() {
               <span className="chip"><span className="dot" style={{ background: activeGroupMeta.color }} />{activeGroupMeta.label}</span>
             )}
             {filterTeam !== 'All' && <span className="chip">{filterTeam}</span>}
+            {filterUpline !== 'All' && <span className="chip">▲ {filterUpline}</span>}
 
             <label className="switch" title="Reveal the complete downline under matched agents">
               <input type="checkbox" checked={showFull} onChange={e => setShowFull(e.target.checked)} />
