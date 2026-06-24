@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { STATUS_CONFIG, STATUS_GROUPS, STATUS_TO_GROUP } from './config'
-import { buildFullTree, pruneToMatches, timeAgo } from './utils'
+import { STATUS_GROUPS, STATUS_TO_GROUP } from './config'
+import { buildFullTree, pruneToMatches, agentKey, timeAgo } from './utils'
 import { useDebounce, useSheetData } from './hooks'
 import { ExpandAllContext } from './context'
 import AgentCard from './AgentCard'
@@ -9,10 +9,9 @@ export default function App() {
   const { allAgents, loading, error, lastUpdated, refetch } = useSheetData()
 
   const [searchInput, setSearchInput] = useState('')
-  const [filterStatus, setFilterStatus] = useState('All') // granular dropdown
-  const [filterTeam, setFilterTeam]     = useState('All')
-  const [activeGroup, setActiveGroup]   = useState('all')  // stat-card bucket
-  const [expandAll, setExpandAll]       = useState({ version: 0, expanded: null })
+  const [filterTeam, setFilterTeam]   = useState('All')
+  const [activeGroup, setActiveGroup] = useState('all') // stat-card bucket drives status filtering
+  const [expandAll, setExpandAll]     = useState({ version: 0, expanded: null })
 
   const search = useDebounce(searchInput, 350)
 
@@ -34,35 +33,19 @@ export default function App() {
     return counts
   }, [allAgents])
 
-  // Statuses actually present, for the granular dropdown
-  const presentStatuses = useMemo(() =>
-    Object.keys(STATUS_CONFIG)
-      .filter(s => allAgents.some(a => a.status === s))
-      .concat([...new Set(allAgents.map(a => a.status))].filter(s => s && s !== '—' && !STATUS_CONFIG[s]))
-      .filter((s, i, arr) => arr.indexOf(s) === i),
-    [allAgents]
-  )
-
   function selectGroup(key) {
-    setFilterStatus('All')
     setActiveGroup(prev => (key !== 'all' && prev === key ? 'all' : key))
-  }
-
-  function onStatusChange(value) {
-    setFilterStatus(value)
-    setActiveGroup(value === 'All' ? 'all' : null) // a specific status deselects the cards
   }
 
   function doExpandAll(expanded) {
     setExpandAll(s => ({ version: s.version + 1, expanded }))
   }
 
-  // Active filters (group counts as a filter only when it's a real bucket)
   const groupActive = activeGroup && activeGroup !== 'all'
-  const hasFilters  = !!search || filterStatus !== 'All' || filterTeam !== 'All' || groupActive
+  const hasFilters  = !!search || filterTeam !== 'All' || groupActive
 
-  // Agents that pass current filters — used for pruning the tree
-  const matchingNames = useMemo(() => {
+  // Keys of agents that pass current filters — used for pruning the tree
+  const matchingKeys = useMemo(() => {
     if (!hasFilters) return null
 
     const sl = search.toLowerCase()
@@ -70,28 +53,26 @@ export default function App() {
       ? new Set(STATUS_GROUPS.find(g => g.key === activeGroup).statuses)
       : null
 
-    const names = new Set()
+    const keys = new Set()
     allAgents.forEach(a => {
       const mSearch = !search
         || a.name.toLowerCase().includes(sl)
         || a.npn.toLowerCase().includes(sl)
         || a.email.toLowerCase().includes(sl)
-      const mStatus = filterStatus === 'All' || a.status === filterStatus
-      const mGroup  = !groupStatuses || groupStatuses.has(a.status)
-      const mTeam   = filterTeam === 'All' || a.team === filterTeam
-      if (mSearch && mStatus && mGroup && mTeam) names.add(a.name)
+      const mGroup = !groupStatuses || groupStatuses.has(a.status)
+      const mTeam  = filterTeam === 'All' || a.team === filterTeam
+      if (mSearch && mGroup && mTeam) keys.add(agentKey(a))
     })
-    return names
-  }, [allAgents, search, filterStatus, filterTeam, activeGroup, groupActive, hasFilters])
+    return keys
+  }, [allAgents, search, filterTeam, activeGroup, groupActive, hasFilters])
 
   const tree = useMemo(
-    () => (matchingNames ? pruneToMatches(roots, matchingNames) : roots),
-    [roots, matchingNames]
+    () => (matchingKeys ? pruneToMatches(roots, matchingKeys) : roots),
+    [roots, matchingKeys]
   )
 
   const clearFilters = () => {
     setSearchInput('')
-    setFilterStatus('All')
     setFilterTeam('All')
     setActiveGroup('all')
   }
@@ -135,11 +116,11 @@ export default function App() {
 
       {/* ---------- BODY ---------- */}
       <div className="container">
-        {/* Stat cards */}
+        {/* Stat cards — the status filter */}
         <div className="stat-grid">
-          {STATUS_GROUPS.map(g => {
+          {STATUS_GROUPS.map((g, i) => {
             const value = groupCounts[g.key] ?? 0
-            const isActive = activeGroup === g.key && filterStatus === 'All'
+            const isActive = activeGroup === g.key
             const pct = g.key !== 'all' && groupCounts.all
               ? Math.round((value / groupCounts.all) * 100)
               : null
@@ -147,8 +128,9 @@ export default function App() {
               <button
                 key={g.key}
                 className={'stat-card' + (isActive ? ' active' : '')}
-                style={{ '--accent': g.color }}
+                style={{ '--accent': g.color, animationDelay: `${i * 60}ms` }}
                 onClick={() => selectGroup(g.key)}
+                aria-pressed={isActive}
               >
                 <div className="stat-top">
                   <span className="stat-label">{g.label}</span>
@@ -156,9 +138,7 @@ export default function App() {
                 </div>
                 <div className="stat-value">{value.toLocaleString()}</div>
                 <div className="stat-meta">
-                  {g.key === 'all'
-                    ? 'across all statuses'
-                    : <>{pct}% of all agents</>}
+                  {g.key === 'all' ? 'across all statuses' : <>{pct}% of all agents</>}
                 </div>
               </button>
             )
@@ -186,17 +166,6 @@ export default function App() {
 
           <div className="select-wrap">
             <select
-              className={'select' + (filterStatus === 'All' ? ' placeholder' : '')}
-              value={filterStatus}
-              onChange={e => onStatusChange(e.target.value)}
-            >
-              <option value="All">All statuses</option>
-              {presentStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-
-          <div className="select-wrap">
-            <select
               className={'select' + (filterTeam === 'All' ? ' placeholder' : '')}
               value={filterTeam}
               onChange={e => setFilterTeam(e.target.value)}
@@ -217,14 +186,13 @@ export default function App() {
         </div>
 
         {/* Result summary */}
-        {!loading && !error && hasFilters && matchingNames && (
+        {!loading && !error && hasFilters && matchingKeys && (
           <div className="result-bar">
-            <span>Found <b>{matchingNames.size.toLocaleString()}</b> agent{matchingNames.size !== 1 ? 's' : ''}</span>
+            <span>Found <b>{matchingKeys.size.toLocaleString()}</b> agent{matchingKeys.size !== 1 ? 's' : ''}</span>
             {search && <span className="chip">“{search}”</span>}
             {activeGroupMeta && (
               <span className="chip"><span className="dot" style={{ background: activeGroupMeta.color }} />{activeGroupMeta.label}</span>
             )}
-            {filterStatus !== 'All' && <span className="chip">{filterStatus}</span>}
             {filterTeam !== 'All' && <span className="chip">{filterTeam}</span>}
             <span className="hint">· dimmed cards show the upline path only</span>
           </div>
@@ -257,7 +225,7 @@ export default function App() {
           ) : (
             <ExpandAllContext.Provider value={expandAll}>
               {tree.map(root => (
-                <AgentCard key={root.name} agent={root} depth={0} searchTerm={search} />
+                <AgentCard key={root.key} agent={root} depth={0} searchTerm={search} />
               ))}
             </ExpandAllContext.Provider>
           )}

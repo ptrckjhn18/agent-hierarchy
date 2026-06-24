@@ -43,65 +43,85 @@ export function parseCSV(text) {
   return agents
 }
 
-export function buildFullTree(allAgents) {
-  // Step 1: build a map of name → node (with empty children)
-  const byName = new Map()
-  allAgents.forEach(a => byName.set(a.name, { ...a, children: [] }))
+// Stable, unique identity for an agent. NPN is unique across the sheet, so two
+// people who happen to share a name (different NPN/email) stay distinct instead
+// of collapsing into one node. The ~20 rows with no NPN fall back to row id.
+export function agentKey(a) {
+  return a.npn && a.npn !== '—' ? `npn:${a.npn}` : `row:${a.id}`
+}
 
-  // Step 2: create virtual Pinnacle Life Group root if not already a real agent row
-  if (!byName.has('Pinnacle Life Group')) {
-    byName.set('Pinnacle Life Group', {
-      id: 'root',
+// Single post-order pass that records each node's total downline on the node,
+// so AgentCard never has to re-walk its subtree while rendering.
+function computeDescendantCounts(node, depth = 0) {
+  if (depth > 30) { node.descendantCount = 0; return 0 }
+  let c = 0
+  for (const ch of node.children) c += 1 + computeDescendantCounts(ch, depth + 1)
+  node.descendantCount = c
+  return c
+}
+
+export function buildFullTree(allAgents) {
+  // Identity is the unique key; byName only resolves uplines (which are stored
+  // by name in the sheet). First occurrence wins when a name is ambiguous.
+  const byKey  = new Map()
+  const byName = new Map()
+
+  allAgents.forEach(a => {
+    const node = { ...a, key: agentKey(a), children: [] }
+    byKey.set(node.key, node)
+    if (!byName.has(a.name)) byName.set(a.name, node)
+  })
+
+  // Virtual Pinnacle Life Group root, unless a real row already provides it
+  let plgNode = byName.get('Pinnacle Life Group')
+  if (!plgNode) {
+    plgNode = {
+      id: 'root', key: 'root',
       name: 'Pinnacle Life Group',
       npn: '—', status: 'Founders & Owners',
       compLevel: '—', email: '—', team: '—',
       directUpline: null, uplines: [],
-      children: [],
-      isVirtual: true,
-    })
+      children: [], isVirtual: true,
+    }
+    byKey.set('root', plgNode)
+    byName.set('Pinnacle Life Group', plgNode)
   }
 
-  const plgNode = byName.get('Pinnacle Life Group')
-
-  // Step 3: wire each agent to its parent — strictly using directUpline only
-  // Never fall back to Pinnacle Life Group automatically to avoid runaway trees
+  // Wire each agent to its parent strictly via directUpline (by name).
   const attached = new Set()
   allAgents.forEach(a => {
     if (a.name === 'Pinnacle Life Group') return
-    const node = byName.get(a.name)
+    const node = byKey.get(agentKey(a))
     const parentName = a.directUpline
 
     if (parentName && parentName !== a.name && byName.has(parentName)) {
-      // Normal case: parent exists in map
       byName.get(parentName).children.push(node)
-      attached.add(a.name)
+      attached.add(node.key)
     } else if (parentName === 'Pinnacle Life Group' || !parentName) {
-      // Explicitly rooted at PLG or no upline
       plgNode.children.push(node)
-      attached.add(a.name)
+      attached.add(node.key)
     }
-    // If directUpline is set but doesn't exist in map — skip wiring,
-    // they'll be caught as unattached below
+    // directUpline set but missing from the sheet → handled below
   })
 
-  // Step 4: any agent not yet attached goes directly under PLG
+  // Any agent not yet attached hangs directly off PLG
   allAgents.forEach(a => {
     if (a.name === 'Pinnacle Life Group') return
-    if (!attached.has(a.name)) {
-      plgNode.children.push(byName.get(a.name))
-    }
+    const node = byKey.get(agentKey(a))
+    if (!attached.has(node.key)) plgNode.children.push(node)
   })
 
-  return { byName, roots: [plgNode] }
+  computeDescendantCounts(plgNode)
+
+  return { byKey, byName, roots: [plgNode] }
 }
 
-// Prune tree to only branches containing matching agents
-// Matched agents show full downline; ancestors are dimmed path nodes
-export function pruneToMatches(roots, matchingNames) {
+// Prune the tree to only branches containing matching agents.
+// Matched agents show their full downline; ancestors become dimmed path nodes.
+export function pruneToMatches(roots, matchingKeys) {
   function prune(node, depth = 0) {
-    // Safety: prevent infinite recursion (shouldn't happen with clean data)
-    if (depth > 20) return null
-    const selfMatches = matchingNames.has(node.name)
+    if (depth > 30) return null
+    const selfMatches = matchingKeys.has(node.key)
     const prunedChildren = node.children
       .map(c => prune(c, depth + 1))
       .filter(Boolean)
@@ -111,6 +131,11 @@ export function pruneToMatches(roots, matchingNames) {
       isMatch:    selfMatches,
       isPathNode: !selfMatches,
       children:   selfMatches ? node.children : prunedChildren,
+      // matched nodes keep their (precomputed) full count; path nodes only count
+      // the small pruned branch that survived
+      descendantCount: selfMatches
+        ? node.descendantCount
+        : prunedChildren.reduce((s, c) => s + 1 + (c.descendantCount || 0), 0),
     }
   }
   return roots.map(r => prune(r)).filter(Boolean)
@@ -119,14 +144,6 @@ export function pruneToMatches(roots, matchingNames) {
 export function getInitials(name) {
   const p = name.split(' ').filter(Boolean)
   return p.length === 1 ? p[0][0].toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase()
-}
-
-export function countDescendants(node, depth = 0) {
-  // Safety cap to prevent stack overflow
-  if (depth > 20) return 0
-  let c = 0
-  ;(node.children || []).forEach(ch => { c += 1 + countDescendants(ch, depth + 1) })
-  return c
 }
 
 export function timeAgo(date) {

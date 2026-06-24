@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useContext, memo } from 'react'
+import React, { useState, useEffect, useContext, memo } from 'react'
 import { STATUS_CONFIG, DEFAULT_STATUS } from './config'
-import { getInitials, getCompColor, countDescendants } from './utils'
+import { getInitials, getCompColor } from './utils'
 import { ExpandAllContext } from './context'
 
 const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpand }) {
@@ -10,6 +10,13 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpan
   // Path nodes auto-expand so the matched agent is always visible
   const [expanded, setExpanded] = useState(isPathNode || forceExpand || depth < 1)
   const [showDetail, setShowDetail] = useState(false)
+
+  // Path nodes must stay open so the matched descendant below them is visible —
+  // even when this instance was first mounted (and initialised collapsed) as a
+  // normal node before the filter turned it into a path node.
+  useEffect(() => {
+    if (isPathNode) setExpanded(true)
+  }, [isPathNode])
 
   // React to global expand-all / collapse-all
   const expandAll = useContext(ExpandAllContext)
@@ -21,10 +28,7 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpan
   const hasChildren   = agent.children && agent.children.length > 0
   const status        = STATUS_CONFIG[agent.status] || DEFAULT_STATUS
   const compColor     = getCompColor(agent.compLevel)
-  const downlineCount = useMemo(
-    () => (hasChildren ? countDescendants(agent) : 0),
-    [agent, hasChildren]
-  )
+  const downlineCount = agent.descendantCount || 0
 
   const cardClass =
     'card' +
@@ -114,7 +118,7 @@ const AgentCard = memo(function AgentCard({ agent, depth, searchTerm, forceExpan
         <div className="node-children">
           {agent.children.map(child => (
             <AgentCard
-              key={child.name}
+              key={child.key}
               agent={child}
               depth={depth + 1}
               searchTerm={searchTerm}
