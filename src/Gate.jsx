@@ -3,7 +3,7 @@ import { LOGIN_ENDPOINT } from './config'
 
 // Password gate. The password is sent to the server, validated there, and
 // exchanged for a short-lived session token — it is never checked client-side.
-export default function Gate({ onAuthed }) {
+export default function Gate({ onAuthed, notice }) {
   const [pw, setPw]     = useState('')
   const [err, setErr]   = useState('')
   const [busy, setBusy] = useState(false)
@@ -41,6 +41,8 @@ export default function Gate({ onAuthed }) {
         </span>
         <div className="gate-title">Agent Hierarchy</div>
         <div className="gate-sub">Pinnacle Life Group · internal tool</div>
+
+        {notice && <div className="gate-notice">{notice}</div>}
 
         <label className="gate-label" htmlFor="gate-pw">Team password</label>
         <input

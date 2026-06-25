@@ -1,4 +1,5 @@
-export const POLL_MS    = 60000
+// Sign out after this long with no user activity (PII left on an idle screen).
+export const IDLE_LOGOUT_MS = 30 * 60 * 1000 // 30 minutes
 
 // Authenticated serverless proxy endpoints (Netlify Functions).
 // The sheet ID/credentials live only on the server (Netlify env vars), never

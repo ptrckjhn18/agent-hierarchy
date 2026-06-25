@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
-import { STATUS_GROUPS, STATUS_TO_GROUP } from './config'
+import { STATUS_GROUPS, STATUS_TO_GROUP, IDLE_LOGOUT_MS } from './config'
 import { buildFullTree, pruneToMatches, findNameConflicts, agentKey, timeAgo } from './utils'
-import { useDebounce, useSheetData } from './hooks'
+import { useDebounce, useSheetData, useIdleTimeout } from './hooks'
 import { ExpandAllContext } from './context'
 import { loadSession, saveSession, clearSession } from './auth'
 import AgentCard from './AgentCard'
@@ -14,11 +14,18 @@ import Gate from './Gate'
 // then the dashboard. Splitting keeps useSheetData out of any conditional.
 export default function App() {
   const [session, setSession] = useState(loadSession)
+  const [notice, setNotice]   = useState('')
 
-  const onAuthed = useCallback(s => { saveSession(s); setSession(s) }, [])
+  const onAuthed = useCallback(s => { setNotice(''); saveSession(s); setSession(s) }, [])
   const onUnauthorized = useCallback(() => { clearSession(); setSession(null) }, [])
+  const onIdle = useCallback(() => {
+    clearSession(); setSession(null)
+    setNotice('Signed out after 30 minutes of inactivity. Please sign in again.')
+  }, [])
 
-  if (!session) return <Gate onAuthed={onAuthed} />
+  useIdleTimeout(!!session, IDLE_LOGOUT_MS, onIdle)
+
+  if (!session) return <Gate onAuthed={onAuthed} notice={notice} />
   return <Dashboard token={session.token} onUnauthorized={onUnauthorized} />
 }
 

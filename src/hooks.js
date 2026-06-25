@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { AGENTS_ENDPOINT, POLL_MS } from './config'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { AGENTS_ENDPOINT } from './config'
 import { agentsFromRows } from './utils'
 
 export function useDebounce(value, delay) {
@@ -44,11 +44,36 @@ export function useSheetData(token, onUnauthorized) {
     }
   }, [token, onUnauthorized])
 
-  useEffect(() => {
-    fetchSheet()
-    const t = setInterval(() => fetchSheet(), POLL_MS)
-    return () => clearInterval(t)
-  }, [fetchSheet])
+  // Load once on mount. No polling — data changes infrequently and is refreshed
+  // on demand via the Refresh button, which keeps serverless usage minimal.
+  useEffect(() => { fetchSheet() }, [fetchSheet])
 
   return { allAgents, loading, error, lastUpdated, refetch: fetchSheet }
+}
+
+// Signs the user out after `timeoutMs` of no activity (mouse/keyboard/touch/
+// tab-return). Security measure for PII left open on an unattended screen.
+export function useIdleTimeout(enabled, timeoutMs, onIdle) {
+  const onIdleRef = useRef(onIdle)
+  onIdleRef.current = onIdle
+
+  useEffect(() => {
+    if (!enabled) return
+    let timer
+    const reset = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => onIdleRef.current(), timeoutMs)
+    }
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click']
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }))
+    const onVisible = () => { if (document.visibilityState === 'visible') reset() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    reset() // start the clock
+    return () => {
+      clearTimeout(timer)
+      events.forEach(e => window.removeEventListener(e, reset))
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [enabled, timeoutMs])
 }
